@@ -1,6 +1,7 @@
 #pragma once
 #include "include/qnn_types.h"
 #include <string>
+#include <mutex>
 
 struct QnnRuntimeInfo {
     std::string backendName;
@@ -25,8 +26,10 @@ private:
 
     bool checkHtpLibraryPresence();
 
+    mutable std::mutex mutex_;
     QnnBackendTarget currentTarget_;
     bool isInitialized_;
     bool htpLibraryPresent_;
     std::string version_;
 };
+

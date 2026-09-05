@@ -28,4 +28,6 @@ find_library(log-lib log)
 target_link_libraries(
     sdnpu_engine
     ${log-lib}
+    dl
 )
+

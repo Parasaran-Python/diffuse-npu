@@ -19,11 +19,20 @@ Java_com_example_sdnpu_engine_QnnNativeBridge_nativeGetBackendStatus(
     QnnRuntimeInfo info = QnnEngineWrapper::getInstance().getRuntimeInfo();
 
     jclass statusClass = env->FindClass("com/example/sdnpu/engine/BackendStatus");
+    if (!statusClass) {
+        return nullptr;
+    }
+
     jmethodID constructor = env->GetMethodID(
         statusClass,
         "<init>",
         "(Ljava/lang/String;ZZLjava/lang/String;Ljava/lang/String;)V"
     );
+    if (!constructor) {
+        env->DeleteLocalRef(statusClass);
+        return nullptr;
+    }
+
 
     jstring backendName = env->NewStringUTF(info.backendName.c_str());
     jstring versionString = env->NewStringUTF(info.versionString.c_str());

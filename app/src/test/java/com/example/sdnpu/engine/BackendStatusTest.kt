@@ -25,4 +25,14 @@ class BackendStatusTest {
         assertTrue(status.isLoaded)
         assertEquals("HTP (Hexagon v73)", status.backendName)
     }
+
+    @Test
+    fun testBackendTypeFromId() {
+        assertEquals(BackendType.CPU, BackendType.fromId(0))
+        assertEquals(BackendType.GPU, BackendType.fromId(1))
+        assertEquals(BackendType.HTP_NPU, BackendType.fromId(2))
+        // Fallback test for unknown / invalid IDs
+        assertEquals(BackendType.CPU, BackendType.fromId(-1))
+        assertEquals(BackendType.CPU, BackendType.fromId(999))
+    }
 }

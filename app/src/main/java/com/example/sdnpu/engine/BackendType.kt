@@ -6,6 +6,6 @@ enum class BackendType(val id: Int) {
     HTP_NPU(2);
 
     companion object {
-        fun fromId(id: Int): BackendType = values().firstOrNull { it.id == id } ?: CPU
+        fun fromId(id: Int): BackendType = entries.firstOrNull { it.id == id } ?: CPU
     }
 }

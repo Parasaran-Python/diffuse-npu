@@ -37,6 +37,7 @@ bool QnnEngineWrapper::checkHtpLibraryPresence() {
 }
 
 Qnn_ErrorHandle_t QnnEngineWrapper::initialize(QnnBackendTarget target) {
+    std::lock_guard<std::mutex> lock(mutex_);
     currentTarget_ = target;
     htpLibraryPresent_ = checkHtpLibraryPresence();
 
@@ -51,6 +52,7 @@ Qnn_ErrorHandle_t QnnEngineWrapper::initialize(QnnBackendTarget target) {
 }
 
 QnnRuntimeInfo QnnEngineWrapper::getRuntimeInfo() const {
+    std::lock_guard<std::mutex> lock(mutex_);
     QnnRuntimeInfo info;
     info.isLoaded = isInitialized_;
     info.isHtpAvailable = htpLibraryPresent_;
@@ -75,7 +77,10 @@ QnnRuntimeInfo QnnEngineWrapper::getRuntimeInfo() const {
 }
 
 float QnnEngineWrapper::runBenchmarkDummy(int iterations) {
-    if (!isInitialized_ || iterations <= 0) return 0.0f;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!isInitialized_ || iterations <= 0) return 0.0f;
+    }
 
     auto start = std::chrono::high_resolution_clock::now();
     // Simulate tensor operation workload: 64x64 matrix multiply
@@ -96,10 +101,13 @@ float QnnEngineWrapper::runBenchmarkDummy(int iterations) {
         }
     }
     auto end = std::chrono::high_resolution_clock::now();
+    asm volatile("" : : "r"(c.data()) : "memory");
     std::chrono::duration<float, std::milli> duration = end - start;
     return duration.count();
 }
 
 void QnnEngineWrapper::release() {
+    std::lock_guard<std::mutex> lock(mutex_);
     isInitialized_ = false;
 }
+
