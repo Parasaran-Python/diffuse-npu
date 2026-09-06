@@ -35,9 +35,12 @@ import java.io.File
 class MainViewModel(
     application: Application? = null,
     private val modelManager: ModelManager = ModelManager(
-        if (application != null) File(application.filesDir, "models")
-        else File(System.getProperty("java.io.tmpdir"), "models")
+        baseStorageDir = if (application != null) {
+            application.getExternalFilesDir(null)?.let { File(it, "models") } ?: File(application.filesDir, "models")
+        } else File(System.getProperty("java.io.tmpdir"), "models"),
+        secondaryStorageDir = if (application != null) File(application.filesDir, "models") else null
     ),
+
     private val historyRepository: HistoryRepository = if (application != null) {
         HistoryRepository.getInstance(application)
     } else {

@@ -100,13 +100,11 @@ class PipelineManager(
 
                 if (params.upscaleMode != UpscaleMode.OFF) {
                     val scale = if (params.upscaleMode == UpscaleMode.X2) 2 else 4
-                    val esrganModelDir = if (File(File(effectiveModelsDir, "realesrgan_x${scale}plus"), "model.bin").exists()) {
-                        File(effectiveModelsDir, "realesrgan_x${scale}plus")
-                    } else if (secondaryModelsDir != null && File(File(secondaryModelsDir, "realesrgan_x${scale}plus"), "model.bin").exists()) {
-                        File(secondaryModelsDir, "realesrgan_x${scale}plus")
-                    } else {
-                        File(effectiveModelsDir, "realesrgan_x${scale}plus")
-                    }
+                    val esrganModelDir = listOfNotNull(modelsDir, secondaryModelsDir)
+                        .firstOrNull { File(File(it, "realesrgan_x${scale}plus"), "model.bin").exists() }
+                        ?.let { File(it, "realesrgan_x${scale}plus") }
+                        ?: File(effectiveModelsDir, "realesrgan_x${scale}plus")
+
                     send(PipelineState.Upscaling(progress = 0f, scale = scale))
 
                     var lastProgressPercent = 0
