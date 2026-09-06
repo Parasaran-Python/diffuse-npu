@@ -32,17 +32,20 @@ object SDEngine {
         if (QnnNativeBridge.isLibraryLoaded()) {
             try {
                 if (nativeLoadSdContext(modelPath)) {
-                    val bytes = nativeGenerateSd(
-                        promptTokens,
-                        negTokens,
-                        params.steps,
-                        params.cfgScale,
-                        seed,
-                        samplerId
-                    )
-                    nativeUnloadSdContext()
-                    if (bytes != null && bytes.isNotEmpty()) {
-                        return bytes
+                    try {
+                        val bytes = nativeGenerateSd(
+                            promptTokens,
+                            negTokens,
+                            params.steps,
+                            params.cfgScale,
+                            seed,
+                            samplerId
+                        )
+                        if (bytes != null && bytes.isNotEmpty()) {
+                            return bytes
+                        }
+                    } finally {
+                        nativeUnloadSdContext()
                     }
                 }
             } catch (e: Throwable) {

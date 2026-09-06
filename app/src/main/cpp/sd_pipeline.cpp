@@ -9,11 +9,16 @@ SdPipeline& SdPipeline::getInstance() {
 SdPipeline::SdPipeline() : isLoaded_(false) {}
 
 bool SdPipeline::loadContext(const std::string& modelDir) {
+    std::lock_guard<std::mutex> lock(mutex_);
     bool ok1 = clipEncoder_.loadModel(modelDir + "/clip_text_encoder.bin");
     bool ok2 = unetDenoiser_.loadModel(modelDir + "/unet.bin");
     bool ok3 = vaeDecoder_.loadModel(modelDir + "/vae_decoder.bin");
-    isLoaded_ = ok1 && ok2 && ok3;
-    return isLoaded_;
+    if (!ok1 || !ok2 || !ok3) {
+        unloadContextInternal();
+        return false;
+    }
+    isLoaded_ = true;
+    return true;
 }
 
 bool SdPipeline::generate(
@@ -26,6 +31,7 @@ bool SdPipeline::generate(
     std::function<void(int, int)> progressCallback,
     std::vector<uint8_t>& outImageBytes
 ) {
+    std::lock_guard<std::mutex> lock(mutex_);
     if (!isLoaded_ || steps <= 0) return false;
 
     // 1. CLIP text embeddings
@@ -56,12 +62,14 @@ bool SdPipeline::generate(
 
     for (int s = 0; s < steps; ++s) {
         float timestep = 999.0f * (1.0f - static_cast<float>(s) / static_cast<float>(steps));
-        unetDenoiser_.predictNoise(latents.data(), timestep, condEmbeddings.data(), condNoise.data(), latentSize);
-        unetDenoiser_.predictNoise(latents.data(), timestep, uncondEmbeddings.data(), uncondNoise.data(), latentSize);
+        if (!unetDenoiser_.predictNoise(latents.data(), timestep, condEmbeddings.data(), condNoise.data(), latentSize) ||
+            !unetDenoiser_.predictNoise(latents.data(), timestep, uncondEmbeddings.data(), uncondNoise.data(), latentSize)) {
+            return false;
+        }
         unetDenoiser_.applyCfg(uncondNoise.data(), condNoise.data(), cfgScale, guidedNoise.data(), latentSize);
 
         scheduler.step(latents.data(), guidedNoise.data(), s, nextLatents.data(), latentSize);
-        latents = nextLatents;
+        latents.swap(nextLatents);
 
         if (progressCallback) {
             progressCallback(s + 1, steps);
@@ -79,9 +87,19 @@ bool SdPipeline::generate(
     return true;
 }
 
-void SdPipeline::unloadContext() {
+void SdPipeline::unloadContextInternal() {
     clipEncoder_.unload();
     unetDenoiser_.unload();
     vaeDecoder_.unload();
     isLoaded_ = false;
+}
+
+void SdPipeline::unloadContext() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    unloadContextInternal();
+}
+
+bool SdPipeline::isLoaded() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return isLoaded_;
 }

@@ -8,6 +8,7 @@
 #include <vector>
 #include <functional>
 #include <cstdint>
+#include <mutex>
 
 class SdPipeline {
 public:
@@ -25,7 +26,7 @@ public:
         std::vector<uint8_t>& outImageBytes
     );
     void unloadContext();
-    bool isLoaded() const { return isLoaded_; }
+    bool isLoaded() const;
 
 private:
     SdPipeline();
@@ -33,8 +34,11 @@ private:
     SdPipeline(const SdPipeline&) = delete;
     SdPipeline& operator=(const SdPipeline&) = delete;
 
+    void unloadContextInternal();
+
     ClipEncoder clipEncoder_;
     UnetDenoiser unetDenoiser_;
     VaeDecoder vaeDecoder_;
     bool isLoaded_;
+    mutable std::mutex mutex_;
 };

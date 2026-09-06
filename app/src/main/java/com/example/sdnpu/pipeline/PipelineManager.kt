@@ -3,9 +3,10 @@ package com.example.sdnpu.pipeline
 import android.graphics.Bitmap
 import com.example.sdnpu.engine.SDEngine
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.buffer
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
@@ -19,43 +20,41 @@ class PipelineManager(
     private val modelsDir: File = File(System.getProperty("java.io.tmpdir"), "models"),
     private val outputDir: File = File(System.getProperty("java.io.tmpdir"), "generations")
 ) {
-    fun runGeneration(params: GenerationParams): Flow<PipelineState> = flow {
+    fun runGeneration(params: GenerationParams): Flow<PipelineState> = channelFlow {
         val validation = params.validate()
         if (!validation.isValid) {
-            emit(PipelineState.Error(validation.errorMessage ?: "Invalid parameters"))
-            return@flow
+            send(PipelineState.Error(validation.errorMessage ?: "Invalid parameters"))
+            return@channelFlow
         }
 
-        val startTime = System.currentTimeMillis()
-        emit(PipelineState.LoadingModel(params.modelId))
-        delay(50)
+        try {
+            val startTime = System.currentTimeMillis()
+            send(PipelineState.LoadingModel(params.modelId))
 
-        // Emit step-by-step progress
-        for (step in 1..params.steps) {
-            emit(PipelineState.Generating(step, params.steps, "Denoising step $step/${params.steps}"))
-            delay(10)
+            // Generate raw RGBA image bytes on IO dispatcher with direct step progress plumbing
+            val imageBytes = withContext(Dispatchers.IO) {
+                SDEngine.generate(params, modelsDir) { step, total ->
+                    trySend(PipelineState.Generating(step, total, "Denoising step $step/$total"))
+                }
+            }
+
+            // Save Bitmap/PNG to storage
+            val imageFile = File(outputDir, "sd_${System.currentTimeMillis()}.png")
+            withContext(Dispatchers.IO) {
+                saveRgbaAsPng(imageBytes, 512, 512, imageFile)
+            }
+
+            if (params.upscaleMode != UpscaleMode.OFF) {
+                send(PipelineState.Upscaling(params.upscaleMode.scale, 0))
+                send(PipelineState.Upscaling(params.upscaleMode.scale, 100))
+            }
+
+            val totalTime = System.currentTimeMillis() - startTime
+            send(PipelineState.Completed("Generation finished successfully", totalTime, imageFile.absolutePath))
+        } catch (e: Exception) {
+            send(PipelineState.Error(e.message ?: "Generation failed"))
         }
-
-        // Generate raw RGBA image bytes on IO dispatcher
-        val imageBytes = withContext(Dispatchers.IO) {
-            SDEngine.generate(params, modelsDir)
-        }
-
-        // Save Bitmap/PNG to storage
-        val imageFile = File(outputDir, "sd_${System.currentTimeMillis()}.png")
-        withContext(Dispatchers.IO) {
-            saveRgbaAsPng(imageBytes, 512, 512, imageFile)
-        }
-
-        if (params.upscaleMode != UpscaleMode.OFF) {
-            emit(PipelineState.Upscaling(params.upscaleMode.scale, 0))
-            delay(50)
-            emit(PipelineState.Upscaling(params.upscaleMode.scale, 100))
-        }
-
-        val totalTime = System.currentTimeMillis() - startTime
-        emit(PipelineState.Completed("Generation finished successfully", totalTime, imageFile.absolutePath))
-    }
+    }.buffer(capacity = 128, onBufferOverflow = BufferOverflow.SUSPEND)
 
     fun generate(params: GenerationParams): Flow<PipelineState> = runGeneration(params)
 
@@ -63,8 +62,9 @@ class PipelineManager(
 
     private fun saveRgbaAsPng(bytes: ByteArray, width: Int, height: Int, outputFile: File) {
         outputFile.parentFile?.mkdirs()
+        var bitmap: Bitmap? = null
         try {
-            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(bytes))
             FileOutputStream(outputFile).use { fos ->
                 bitmap.compress(Bitmap.CompressFormat.PNG, 100, fos)
@@ -72,6 +72,12 @@ class PipelineManager(
         } catch (e: Throwable) {
             // Fallback for JVM unit tests where Bitmap native implementation is not mocked
             writePngFallback(bytes, width, height, outputFile)
+        } finally {
+            try {
+                bitmap?.recycle()
+            } catch (_: Throwable) {
+                // Ignore if recycle is not mocked or unavailable on host JVM
+            }
         }
     }
 
