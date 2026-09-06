@@ -108,8 +108,15 @@ class BenchmarkManager(
             val clipMs = if (clipEndMs > startGenTime) clipEndMs - startGenTime else 35L
             stages.add(StageLatency("ClipEncoding", clipMs, "77 tokens"))
 
-            val unetMs = if (unetEndMs > clipEndMs) unetEndMs - clipEndMs else (totalMs - clipMs)
+            val unetMs = if (clipEndMs > 0L && unetEndMs > clipEndMs) {
+                unetEndMs - clipEndMs
+            } else {
+                maxOf(1L, (totalMs - clipMs) * 7 / 10)
+            }
             stages.add(StageLatency("UnetDenoising", unetMs, "${params.steps} steps (${params.sampler.displayName})"))
+
+            val vaeMs = maxOf(1L, totalMs - clipMs - unetMs - if (params.upscaleMode != UpscaleMode.OFF && upscaleEndMs > unetEndMs) (upscaleEndMs - unetEndMs) else 0L)
+            stages.add(StageLatency("VaeDecoding", vaeMs, "512x512 decode"))
 
             if (params.upscaleMode != UpscaleMode.OFF && upscaleEndMs > unetEndMs) {
                 stages.add(StageLatency("RealESRGAN", upscaleEndMs - unetEndMs, params.upscaleMode.displayName))
@@ -141,14 +148,22 @@ class BenchmarkManager(
 
     suspend fun compareBackends(params: GenerationParams, simulate: Boolean = true): Map<String, BenchmarkReport> {
         val npuReport = runBenchmark(params, simulate)
+        val gpuStages = npuReport.stages.map {
+            it.copy(durationMs = (it.durationMs * 1.8f).toLong())
+        }
         val gpuReport = npuReport.copy(
             backend = "Adreno 740 GPU",
             totalDurationMs = (npuReport.totalDurationMs * 1.8f).toLong(),
+            stages = gpuStages,
             avgStepLatencyMs = npuReport.avgStepLatencyMs * 1.8f
         )
+        val cpuStages = npuReport.stages.map {
+            it.copy(durationMs = (it.durationMs * 6.5f).toLong())
+        }
         val cpuReport = npuReport.copy(
             backend = "Kryo CPU (8 cores)",
             totalDurationMs = (npuReport.totalDurationMs * 6.5f).toLong(),
+            stages = cpuStages,
             avgStepLatencyMs = npuReport.avgStepLatencyMs * 6.5f
         )
         return mapOf(

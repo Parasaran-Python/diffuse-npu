@@ -143,5 +143,33 @@ class BenchmarkManagerTest {
         assertTrue(gpuReport.totalDurationMs <= cpuReport!!.totalDurationMs)
         assertTrue(npuReport.avgStepLatencyMs <= gpuReport.avgStepLatencyMs)
         assertTrue(gpuReport.avgStepLatencyMs <= cpuReport.avgStepLatencyMs)
+
+        // Verify stage latencies are also scaled
+        assertEquals((npuReport.getStageLatency("ClipEncoding") * 1.8f).toLong(), gpuReport.getStageLatency("ClipEncoding"))
+        assertEquals((npuReport.getStageLatency("ClipEncoding") * 6.5f).toLong(), cpuReport.getStageLatency("ClipEncoding"))
+    }
+
+    @Test
+    fun testLiveBenchmarkWithPipelineManager() = runBlocking {
+        val tempDir = java.io.File(System.getProperty("java.io.tmpdir"), "bench-test-${System.currentTimeMillis()}").apply { mkdirs() }
+        val modelsDir = java.io.File(tempDir, "models").apply { mkdirs() }
+        val gensDir = java.io.File(tempDir, "generations").apply { mkdirs() }
+        try {
+            val pipeline = com.example.sdnpu.pipeline.PipelineManager(modelsDir, gensDir)
+            val manager = BenchmarkManager(pipeline)
+            val params = GenerationParams(
+                prompt = "A live test prompt",
+                steps = 10,
+                upscaleMode = UpscaleMode.OFF
+            )
+            val report = manager.runBenchmark(params, simulate = false)
+            assertTrue("Expected success but failed with: ${report.errorMessage}", report.success)
+            assertTrue(report.totalDurationMs >= 0)
+            assertTrue(report.stages.isNotEmpty())
+            assertTrue(report.getStageLatency("ClipEncoding") >= 0)
+            assertTrue(report.getStageLatency("UnetDenoising") >= 0)
+        } finally {
+            tempDir.deleteRecursively()
+        }
     }
 }
