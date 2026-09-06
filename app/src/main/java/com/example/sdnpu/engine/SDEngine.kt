@@ -29,6 +29,7 @@ object SDEngine {
 
     fun cancel() {
         isCancelled = true
+        OnnxDiffusionEngine.cancel()
         if (QnnNativeBridge.isLibraryLoaded()) {
             try {
                 nativeCancelSd()
@@ -78,7 +79,7 @@ object SDEngine {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
-                // Native generation failed or crashed, fallback to host simulation
+                // Native generation failed or crashed, proceed to ONNX engine
             }
         }
 
@@ -86,14 +87,7 @@ object SDEngine {
             throw CancellationException("Generation cancelled")
         }
 
-        // Host/fallback simulation
-        for (step in 1..params.steps) {
-            if (isCancelled) {
-                throw CancellationException("Generation cancelled")
-            }
-            onStepProgress?.invoke(step, params.steps)
-        }
-        val latents = GaussianNoise.generate(4 * 64 * 64, seed)
-        return VaePostProcessor.latentsToRgbBytes(latents, 512, 512)
+        // Delegate to OnnxDiffusionEngine
+        return OnnxDiffusionEngine.generate(params, modelDir, onStepProgress)
     }
 }
