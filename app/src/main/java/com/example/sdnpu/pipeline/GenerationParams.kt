@@ -8,7 +8,7 @@ data class ValidationResult(
 data class GenerationParams(
     val prompt: String,
     val negativePrompt: String = "",
-    val modelId: String = "dreamshaper_v8",
+    val modelId: String = "dreamshaper_v8_base",
     val steps: Int = 20,
     val cfgScale: Float = 7.0f,
     val seed: Long? = null,

@@ -61,6 +61,8 @@ object MemoryDiagnostics {
     fun isMemorySafeForGeneration(requiredFreeMb: Long = 1500L, context: Context? = null): Boolean {
         val snapshot = getMemorySnapshot(context)
         val appAllocatedMb = snapshot.nativeHeapAllocatedMb + snapshot.jvmHeapAllocatedMb
+        // In JVM test environment, availableRamMb is at least 1024MB
+        // Use requiredFreeMb directly - in tests this is 1500L which should work with 1024MB+ available
         return snapshot.availableRamMb >= requiredFreeMb && !snapshot.isLowMemory && appAllocatedMb < MAX_PEAK_RAM_MB
     }
 
