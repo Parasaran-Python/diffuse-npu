@@ -3,7 +3,6 @@ package com.example.sdnpu.engine
 import android.content.Context
 import java.io.File
 import java.io.InputStream
-import java.util.regex.Pattern
 
 class ClipTokenizer(
     private val vocabMap: Map<String, Int> = DEFAULT_VOCAB,
@@ -33,12 +32,9 @@ class ClipTokenizer(
         const val MAX_LENGTH = 77
         const val VOCAB_ASSET_NAME = "bpe_simple_vocab_16e6.txt"
 
-        // Pattern matching special tokens, contractions, words (ASCII letters), numbers, and symbols.
-        // Android regex does not support UNICODE_CHARACTER_CLASS, so we avoid that flag and use
-        // standard regex constructs with single backslash in raw string.
-        private val PATTERN = Pattern.compile(
-            """<\|startoftext\|>|<\|endoftext\|>|'s|'t|'re|'ve|'m|'ll|'d|[a-zA-Z]+|[0-9]+|[^\sa-zA-Z0-9]+""",
-            Pattern.CASE_INSENSITIVE
+        private val PAT_REGEX = Regex(
+            """<\|startoftext\|>|<\|endoftext\|>|'s|'t|'re|'ve|'m|'ll|'d|\p{L}+|\p{N}|[^\s\p{L}\p{N}]+""",
+            setOf(RegexOption.IGNORE_CASE)
         )
 
         private val WHITESPACE_REGEX = Regex("""\s+""")
@@ -266,11 +262,9 @@ class ClipTokenizer(
         val cleaned = cleanText(text)
         if (cleaned.isEmpty()) return emptyList()
 
-        val matcher = PATTERN.matcher(cleaned)
         val tokens = mutableListOf<String>()
-
-        while (matcher.find()) {
-            val rawToken = matcher.group()
+        for (match in PAT_REGEX.findAll(cleaned)) {
+            val rawToken = match.value
             val tokenBytes = rawToken.toByteArray(Charsets.UTF_8)
             val encodedBuilder = StringBuilder()
             for (b in tokenBytes) {
