@@ -39,7 +39,8 @@ fun GenerateScreen(
     val scrollState = rememberScrollState()
 
     val availableModels = remember(localModels) {
-        if (localModels.isEmpty()) listOf("dreamshaper_v8") else localModels
+        val sdModels = localModels.filter { !it.startsWith("realesrgan") }
+        if (sdModels.isEmpty()) listOf("dreamshaper_v8") else sdModels
     }
 
     val isProcessing = pipelineState is PipelineState.LoadingModel ||
@@ -214,7 +215,7 @@ fun GenerateScreen(
                 is PipelineState.Upscaling -> {
                     CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
                     Spacer(Modifier.width(8.dp))
-                    Text("Upscaling ${pipelineState.scale}x...")
+                    Text("Upscaling ${pipelineState.scale}x with RealESRGAN... ${(pipelineState.progress * 100).toInt()}%")
                 }
                 else -> Text("Generate Image")
             }
@@ -231,6 +232,27 @@ fun GenerateScreen(
         }
 
         when (pipelineState) {
+            is PipelineState.Upscaling -> {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "Upscaling ${pipelineState.scale}x with RealESRGAN... ${(pipelineState.progress * 100).toInt()}%",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                        LinearProgressIndicator(
+                            progress = { pipelineState.progress },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
             is PipelineState.Completed -> {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
@@ -240,16 +262,36 @@ fun GenerateScreen(
                         modifier = Modifier.padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text(
-                            text = "Success! Time: ${pipelineState.executionTimeMs} ms",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-
-                        if (!pipelineState.imagePath.isNullOrEmpty()) {
-                            val bitmap = remember(pipelineState.imagePath) {
-                                BitmapFactory.decodeFile(pipelineState.imagePath)?.asImageBitmap()
+                        val bitmap = remember(pipelineState.imagePath) {
+                            pipelineState.imagePath?.let { path ->
+                                BitmapFactory.decodeFile(path)?.asImageBitmap()
                             }
-                            if (bitmap != null) {
+                        }
+
+                        val badgeText = when {
+                            pipelineState.imagePath?.contains("_x4") == true || (bitmap != null && bitmap.width >= 2048) -> "2048x2048 (4x ESRGAN)"
+                            pipelineState.imagePath?.contains("_x2") == true || (bitmap != null && bitmap.width >= 1024) -> "1024x1024 (2x ESRGAN)"
+                            bitmap != null -> "${bitmap.width}x${bitmap.height}"
+                            else -> "512x512"
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Success! Time: ${pipelineState.executionTimeMs} ms",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            SuggestionChip(
+                                onClick = {},
+                                label = { Text(badgeText) }
+                            )
+                        }
+
+                        if (bitmap != null) {
+                            Box(modifier = Modifier.fillMaxWidth()) {
                                 Image(
                                     bitmap = bitmap,
                                     contentDescription = "Generated Image",
@@ -258,6 +300,16 @@ fun GenerateScreen(
                                         .aspectRatio(1f)
                                         .clip(RoundedCornerShape(8.dp)),
                                     contentScale = ContentScale.Fit
+                                )
+                                SuggestionChip(
+                                    onClick = {},
+                                    label = { Text(badgeText, style = MaterialTheme.typography.labelSmall) },
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(8.dp),
+                                    colors = SuggestionChipDefaults.suggestionChipColors(
+                                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
+                                    )
                                 )
                             }
                         }

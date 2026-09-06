@@ -113,4 +113,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         downloadJob = null
         _downloadStatus.value = DownloadStatus.Idle
     }
+
+    fun isRealESRGANAvailable(scale: Int): Boolean = modelManager.isRealESRGANAvailable(scale)
 }

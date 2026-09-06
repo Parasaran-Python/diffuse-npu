@@ -201,4 +201,38 @@ class ModelManagerTest {
         val wrongHashFile = File(modelDir, "unet.bin").apply { writeText("wrong") }
         assertFalse(modelManager.isModelComplete("incomplete_model", manifest))
     }
+
+    @Test
+    fun testListDiffusionModelsAndRealESRGANModels() {
+        val sdDir = File(modelsDir, "dreamshaper_v8").apply { mkdirs() }
+        File(sdDir, ".complete").createNewFile()
+
+        val esrgan2xDir = File(modelsDir, "realesrgan_x2plus").apply { mkdirs() }
+        File(esrgan2xDir, ".complete").createNewFile()
+
+        val esrgan4xDir = File(modelsDir, "realesrgan_x4plus").apply { mkdirs() }
+        File(esrgan4xDir, ".complete").createNewFile()
+
+        val allModels = modelManager.listLocalModels()
+        assertEquals(3, allModels.size)
+
+        val diffusionModels = modelManager.listDiffusionModels()
+        assertEquals(listOf("dreamshaper_v8"), diffusionModels)
+
+        val esrganModels = modelManager.listRealESRGANModels()
+        assertEquals(listOf("realesrgan_x2plus", "realesrgan_x4plus"), esrganModels.sorted())
+    }
+
+    @Test
+    fun testIsRealESRGANAvailable() {
+        assertFalse(modelManager.isRealESRGANAvailable(2))
+        assertFalse(modelManager.isRealESRGANAvailable(4))
+
+        val esrgan2xDir = File(modelsDir, "realesrgan_x2plus").apply { mkdirs() }
+        assertFalse(modelManager.isRealESRGANAvailable(2))
+
+        File(esrgan2xDir, "model.bin").writeText("dummy weights")
+        assertTrue(modelManager.isRealESRGANAvailable(2))
+        assertFalse(modelManager.isRealESRGANAvailable(4))
+    }
 }

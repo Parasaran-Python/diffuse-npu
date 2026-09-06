@@ -163,6 +163,36 @@ class ModelManager(
         return baseStorageDir.listFiles { f -> f.isDirectory && File(f, ".complete").exists() }?.map { it.name } ?: emptyList()
     }
 
+    fun listDiffusionModels(): List<String> {
+        return listLocalModels().filter { !it.startsWith("realesrgan") }
+    }
+
+    fun listRealESRGANModels(): List<String> {
+        return listLocalModels().filter { it.startsWith("realesrgan") }
+    }
+
+    fun isRealESRGANAvailable(scale: Int): Boolean {
+        val modelId = "realesrgan_x${scale}plus"
+        val modelDir = File(baseStorageDir, modelId)
+        return modelDir.exists() && File(modelDir, "model.bin").exists()
+    }
+
+    fun loadLocalManifest(modelId: String): ModelManifest? {
+        val manifestFile = File(File(baseStorageDir, modelId), "manifest.json")
+        if (!manifestFile.exists()) {
+            return when (modelId) {
+                "realesrgan_x2plus" -> ModelManifest.realesrgan_x2plus()
+                "realesrgan_x4plus" -> ModelManifest.realesrgan_x4plus()
+                else -> null
+            }
+        }
+        return try {
+            gson.fromJson(manifestFile.readText(), ModelManifest::class.java)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     fun deleteModel(modelId: String): Boolean {
         val modelDir = File(baseStorageDir, modelId)
         return if (modelDir.exists()) modelDir.deleteRecursively() else false
