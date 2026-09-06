@@ -384,6 +384,32 @@ fun GenerateScreen(
             }
         }
 
+        val isModelAvailable = localModels.contains(params.modelId)
+
+        if (!isModelAvailable) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Warning,
+                        contentDescription = "Model Missing",
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                    Text(
+                        text = "Model '${params.modelId}' is not installed. Please download in Settings or sideload via ADB.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+            }
+        }
+
         // Generate and Cancel buttons
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -391,7 +417,7 @@ fun GenerateScreen(
         ) {
             Button(
                 onClick = onGenerate,
-                enabled = !isProcessing && params.prompt.isNotBlank(),
+                enabled = !isProcessing && params.prompt.isNotBlank() && isModelAvailable,
                 modifier = Modifier.weight(1f)
             ) {
                 if (isProcessing) {
@@ -410,7 +436,7 @@ fun GenerateScreen(
                         }
                     )
                 } else {
-                    Text("Generate Image")
+                    Text(if (!isModelAvailable && params.prompt.isNotBlank()) "Model Not Installed" else "Generate Image")
                 }
             }
 

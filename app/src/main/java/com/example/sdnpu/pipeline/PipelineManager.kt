@@ -29,10 +29,27 @@ class PipelineManager(
         ESRGANEngine.cancel()
     }
 
+    fun validateModelAvailability(modelId: String, modelsDir: File = this.modelsDir): Result<Unit> {
+        val modelDir = File(modelsDir, modelId)
+        val requiredFiles = listOf("text_encoder.onnx", "unet.onnx", "vae_decoder.onnx")
+        val missing = requiredFiles.filter { !File(modelDir, it).exists() }
+        return if (missing.isEmpty()) {
+            Result.success(Unit)
+        } else {
+            Result.failure(IllegalStateException("Model '$modelId' components not found (missing: ${missing.joinToString(", ")}). Please download in Settings or sideload via ADB."))
+        }
+    }
+
     fun runGeneration(params: GenerationParams): Flow<PipelineState> = channelFlow {
         val validation = params.validate()
         if (!validation.isValid) {
             send(PipelineState.Error(validation.errorMessage ?: "Invalid parameters"))
+            return@channelFlow
+        }
+
+        val modelValidation = validateModelAvailability(params.modelId, modelsDir)
+        if (modelValidation.isFailure) {
+            send(PipelineState.Error(modelValidation.exceptionOrNull()?.message ?: "Model '${params.modelId}' not found"))
             return@channelFlow
         }
 
