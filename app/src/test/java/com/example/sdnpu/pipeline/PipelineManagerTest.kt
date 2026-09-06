@@ -47,11 +47,11 @@ class PipelineManagerTest {
         val states = pipelineManager.generate(params).toList()
 
         val upscaleStates = states.filterIsInstance<PipelineState.Upscaling>()
-        assertEquals(2, upscaleStates.size)
-        assertEquals(2, upscaleStates[0].scale)
-        assertEquals(0, upscaleStates[0].progressPercent)
-        assertEquals(2, upscaleStates[1].scale)
-        assertEquals(100, upscaleStates[1].progressPercent)
+        assertTrue("Upscale states should not be empty", upscaleStates.isNotEmpty())
+        assertEquals(2, upscaleStates.first().scale)
+        assertEquals(0, upscaleStates.first().progressPercent)
+        assertEquals(2, upscaleStates.last().scale)
+        assertEquals(100, upscaleStates.last().progressPercent)
 
         assertTrue(states.last() is PipelineState.Completed)
     }

@@ -1,6 +1,7 @@
 package com.example.sdnpu.pipeline
 
 import android.graphics.Bitmap
+import com.example.sdnpu.engine.ESRGANEngine
 import com.example.sdnpu.engine.SDEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.BufferOverflow
@@ -22,6 +23,7 @@ class PipelineManager(
 ) {
     fun cancel() {
         SDEngine.cancel()
+        ESRGANEngine.cancel()
     }
 
     fun runGeneration(params: GenerationParams): Flow<PipelineState> = channelFlow {
@@ -41,6 +43,7 @@ class PipelineManager(
                 val batchParams = params.copy(seed = batchSeed)
 
                 // Generate raw RGBA image bytes on IO dispatcher with direct step progress plumbing
+                // Note: SD native context is strictly released before this call returns
                 val imageBytes = withContext(Dispatchers.IO) {
                     SDEngine.generate(batchParams, modelsDir) { step, total ->
                         val msg = if (params.batchCount > 1) {
@@ -52,19 +55,51 @@ class PipelineManager(
                     }
                 }
 
-                // Save Bitmap/PNG to storage with distinct timestamp and index
-                val imageFile = File(outputDir, "sd_${System.currentTimeMillis()}_$batchIdx.png")
-                withContext(Dispatchers.IO) {
-                    saveRgbaAsPng(imageBytes, 512, 512, imageFile)
-                }
-
                 if (params.upscaleMode != UpscaleMode.OFF) {
-                    send(PipelineState.Upscaling(params.upscaleMode.scale, 0))
-                    send(PipelineState.Upscaling(params.upscaleMode.scale, 100))
-                }
+                    val scale = if (params.upscaleMode == UpscaleMode.X2) 2 else 4
+                    val esrganModelDir = File(modelsDir, "realesrgan_x${scale}plus")
+                    send(PipelineState.Upscaling(progress = 0f, scale = scale))
 
-                val elapsedMs = System.currentTimeMillis() - startTime
-                send(PipelineState.Completed("Generation finished successfully", elapsedMs, imageFile.absolutePath))
+                    var lastProgressPercent = 0
+                    val upscaledBytes = withContext(Dispatchers.IO) {
+                        ESRGANEngine.upscale(
+                            inputRgba = imageBytes,
+                            inWidth = 512,
+                            inHeight = 512,
+                            scale = scale,
+                            modelDir = esrganModelDir,
+                            onProgress = { progress ->
+                                val pct = (progress * 100).toInt().coerceIn(0, 100)
+                                if (pct > lastProgressPercent) {
+                                    lastProgressPercent = pct
+                                    trySend(PipelineState.Upscaling(progress = progress, scale = scale))
+                                }
+                            }
+                        )
+                    }
+
+                    if (lastProgressPercent < 100) {
+                        send(PipelineState.Upscaling(progress = 1.0f, scale = scale))
+                    }
+
+                    val upscaledWidth = 512 * scale
+                    val upscaledHeight = 512 * scale
+                    val imageFile = File(outputDir, "sd_${System.currentTimeMillis()}_${batchIdx}_x${scale}.png")
+                    withContext(Dispatchers.IO) {
+                        saveRgbaAsPng(upscaledBytes, upscaledWidth, upscaledHeight, imageFile)
+                    }
+
+                    val totalDurationMs = System.currentTimeMillis() - startTime
+                    send(PipelineState.Completed(imageFile, totalDurationMs))
+                } else {
+                    val imageFile = File(outputDir, "sd_${System.currentTimeMillis()}_$batchIdx.png")
+                    withContext(Dispatchers.IO) {
+                        saveRgbaAsPng(imageBytes, 512, 512, imageFile)
+                    }
+
+                    val totalDurationMs = System.currentTimeMillis() - startTime
+                    send(PipelineState.Completed(imageFile, totalDurationMs))
+                }
             }
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
