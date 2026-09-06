@@ -1,0 +1,73 @@
+package com.example.sdnpu.pipeline
+
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.*
+import org.junit.Test
+
+class PipelineManagerTest {
+    private val pipelineManager = PipelineManager()
+
+    @Test
+    fun testSuccessfulGenerationFlowWithoutUpscale() = runBlocking {
+        val params = GenerationParams(
+            prompt = "a serene mountain lake",
+            steps = 10,
+            upscaleMode = UpscaleMode.OFF
+        )
+
+        val states = pipelineManager.runGeneration(params).toList()
+
+        assertTrue(states.isNotEmpty())
+        assertTrue("First state should be LoadingModel", states.first() is PipelineState.LoadingModel)
+        assertEquals("dreamshaper_v8", (states.first() as PipelineState.LoadingModel).modelId)
+
+        val generatingStates = states.filterIsInstance<PipelineState.Generating>()
+        assertEquals(10, generatingStates.size)
+        assertEquals(1, generatingStates.first().step)
+        assertEquals(10, generatingStates.last().step)
+
+        val upscaleStates = states.filterIsInstance<PipelineState.Upscaling>()
+        assertTrue("No upscaling expected when OFF", upscaleStates.isEmpty())
+
+        assertTrue("Last state should be Completed", states.last() is PipelineState.Completed)
+        val completed = states.last() as PipelineState.Completed
+        assertEquals("Generation finished successfully", completed.message)
+        assertTrue(completed.executionTimeMs >= 0)
+    }
+
+    @Test
+    fun testSuccessfulGenerationFlowWithUpscale() = runBlocking {
+        val params = GenerationParams(
+            prompt = "a majestic eagle in flight",
+            steps = 10,
+            upscaleMode = UpscaleMode.X2
+        )
+
+        val states = pipelineManager.generate(params).toList()
+
+        val upscaleStates = states.filterIsInstance<PipelineState.Upscaling>()
+        assertEquals(2, upscaleStates.size)
+        assertEquals(2, upscaleStates[0].scale)
+        assertEquals(0, upscaleStates[0].progressPercent)
+        assertEquals(2, upscaleStates[1].scale)
+        assertEquals(100, upscaleStates[1].progressPercent)
+
+        assertTrue(states.last() is PipelineState.Completed)
+    }
+
+    @Test
+    fun testGenerationWithInvalidParamsEmitsError() = runBlocking {
+        val invalidParams = GenerationParams(
+            prompt = "   ",
+            steps = 20
+        )
+
+        val states = pipelineManager.runGeneration(invalidParams).toList()
+
+        assertEquals(1, states.size)
+        assertTrue(states[0] is PipelineState.Error)
+        val error = states[0] as PipelineState.Error
+        assertEquals("Prompt cannot be empty", error.error)
+    }
+}
