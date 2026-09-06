@@ -25,11 +25,14 @@ class PipelineChainingTest {
         testModelsDir = File(System.getProperty("java.io.tmpdir"), "test_chaining_models_$testId")
         testOutputDir.mkdirs()
         testModelsDir.mkdirs()
+        com.example.sdnpu.TestModelFixtures.stageModel(testModelsDir, "dreamshaper_v8_base")
+        com.example.sdnpu.engine.OnnxDiffusionEngine.testSimulationEnabled = true
         pipelineManager = PipelineManager(modelsDir = testModelsDir, outputDir = testOutputDir)
     }
 
     @After
     fun tearDown() {
+        com.example.sdnpu.engine.OnnxDiffusionEngine.testSimulationEnabled = false
         testOutputDir.deleteRecursively()
         testModelsDir.deleteRecursively()
     }

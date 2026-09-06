@@ -154,6 +154,8 @@ class BenchmarkManagerTest {
         val tempDir = java.io.File(System.getProperty("java.io.tmpdir"), "bench-test-${System.currentTimeMillis()}").apply { mkdirs() }
         val modelsDir = java.io.File(tempDir, "models").apply { mkdirs() }
         val gensDir = java.io.File(tempDir, "generations").apply { mkdirs() }
+        com.example.sdnpu.TestModelFixtures.stageModel(modelsDir, "dreamshaper_v8_base")
+        com.example.sdnpu.engine.OnnxDiffusionEngine.testSimulationEnabled = true
         try {
             val pipeline = com.example.sdnpu.pipeline.PipelineManager(modelsDir, gensDir)
             val manager = BenchmarkManager(pipeline)
@@ -169,6 +171,7 @@ class BenchmarkManagerTest {
             assertTrue(report.getStageLatency("ClipEncoding") >= 0)
             assertTrue(report.getStageLatency("UnetDenoising") >= 0)
         } finally {
+            com.example.sdnpu.engine.OnnxDiffusionEngine.testSimulationEnabled = false
             tempDir.deleteRecursively()
         }
     }

@@ -1,5 +1,6 @@
 package com.example.sdnpu.engine
 
+import com.example.sdnpu.TestModelFixtures
 import com.example.sdnpu.pipeline.GenerationParams
 import org.junit.Assert.*
 import org.junit.Test
@@ -49,9 +50,27 @@ class OnnxDiffusionEngineTest {
             OnnxDiffusionEngine.generate(params, emptyDir)
             fail("Expected IllegalStateException for missing ONNX model files")
         } catch (e: IllegalStateException) {
-            assertTrue("Exception message should indicate missing components", e.message?.contains("components not found") == true)
+            assertTrue("Exception message should indicate invalid or missing component", e.message?.contains("is invalid or missing") == true)
         } finally {
             emptyDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun testEmptyModelFilesThrowsIllegalStateExceptionInProduction() {
+        val tempDir = File(System.getProperty("java.io.tmpdir"), "empty_model_files_${System.currentTimeMillis()}")
+        TestModelFixtures.stageModel(tempDir, "sdturbo")
+        val modelDir = File(tempDir, "sdturbo")
+        OnnxDiffusionEngine.testSimulationEnabled = false
+
+        try {
+            val params = GenerationParams(prompt = "a majestic landscape")
+            OnnxDiffusionEngine.generate(params, modelDir)
+            fail("Expected IllegalStateException for 0-byte model files in production")
+        } catch (e: IllegalStateException) {
+            assertTrue("Exception message should indicate invalid or missing component", e.message?.contains("is invalid or missing") == true)
+        } finally {
+            tempDir.deleteRecursively()
         }
     }
 
@@ -70,8 +89,9 @@ class OnnxDiffusionEngineTest {
     @Test
     fun testSimulationWithStagedFixturesProducesArgbBytes() {
         val tempDir = File(System.getProperty("java.io.tmpdir"), "test_fixture_model_${System.currentTimeMillis()}")
-        OnnxDiffusionEngine.stageTestFixtures(tempDir, "sdturbo")
+        TestModelFixtures.stageModel(tempDir, "sdturbo")
         val modelDir = File(tempDir, "sdturbo")
+        OnnxDiffusionEngine.testSimulationEnabled = true
 
         try {
             val progressSteps = mutableListOf<Pair<Int, Int>>()
@@ -94,6 +114,7 @@ class OnnxDiffusionEngineTest {
                 assertEquals(255.toByte(), bytes[i])
             }
         } finally {
+            OnnxDiffusionEngine.testSimulationEnabled = false
             tempDir.deleteRecursively()
         }
     }

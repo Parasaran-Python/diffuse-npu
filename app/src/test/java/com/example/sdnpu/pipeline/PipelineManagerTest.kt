@@ -2,11 +2,25 @@ package com.example.sdnpu.pipeline
 
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Assert.*
+import org.junit.Before
 import org.junit.Test
+import java.io.File
 
 class PipelineManagerTest {
     private val pipelineManager = PipelineManager()
+
+    @Before
+    fun setUp() {
+        com.example.sdnpu.TestModelFixtures.stageModel(File(System.getProperty("java.io.tmpdir"), "models"), "dreamshaper_v8_base")
+        com.example.sdnpu.engine.OnnxDiffusionEngine.testSimulationEnabled = true
+    }
+
+    @After
+    fun tearDown() {
+        com.example.sdnpu.engine.OnnxDiffusionEngine.testSimulationEnabled = false
+    }
 
     @Test
     fun testSuccessfulGenerationFlowWithoutUpscale() = runBlocking {
