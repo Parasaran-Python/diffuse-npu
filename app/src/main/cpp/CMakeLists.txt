@@ -21,6 +21,8 @@ add_library(
     SHARED
     qnn_wrapper.cpp
     clip_encoder.cpp
+    scheduler.cpp
+    unet_denoiser.cpp
     jni_bridge.cpp
 )
 
