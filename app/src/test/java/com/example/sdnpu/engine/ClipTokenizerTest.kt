@@ -73,4 +73,65 @@ class ClipTokenizerTest {
         assertTrue(vocabTokens.isNotEmpty())
         assertTrue("EOS token should be present", tokens.lastIndexOf(ClipTokenizer.EOS_TOKEN) >= 0)
     }
+
+    @Test
+    fun testTokenizeKnownPromptMatchesClipIds() {
+        val tokenizer = ClipTokenizer()
+        val tokens = tokenizer.tokenize("a photo of an astronaut")
+        assertEquals(77, tokens.size)
+        assertEquals(49406, tokens[0]) // <|startoftext|>
+        // Verify tokens contains end-of-text marker
+        assertTrue(tokens.contains(49407))
+        // Verify exact standard CLIP token IDs:
+        // "a</w>" -> 320, "photo</w>" -> 1125, "of</w>" -> 539, "an</w>" -> 550, "astronaut</w>" -> 18376
+        assertEquals(320, tokens[1])
+        assertEquals(1125, tokens[2])
+        assertEquals(539, tokens[3])
+        assertEquals(550, tokens[4])
+        assertEquals(18376, tokens[5])
+        assertEquals(49407, tokens[6]) // <|endoftext|>
+    }
+
+    @Test
+    fun testCaseInsensitiveTokenization() {
+        val tokenizer = ClipTokenizer()
+        val lowerTokens = tokenizer.tokenize("a photo of an astronaut")
+        val upperTokens = tokenizer.tokenize("A PHOTO OF AN ASTRONAUT")
+        org.junit.Assert.assertArrayEquals(lowerTokens, upperTokens)
+    }
+
+    @Test
+    fun testContractionsAndPunctuation() {
+        val tokenizer = ClipTokenizer()
+        val tokens = tokenizer.tokenize("it's an astronaut!")
+        assertEquals(77, tokens.size)
+        assertEquals(49406, tokens[0])
+        assertEquals(585, tokens[1])   // "it</w>"
+        assertEquals(568, tokens[2])   // "'s</w>"
+        assertEquals(550, tokens[3])   // "an</w>"
+        assertEquals(18376, tokens[4]) // "astronaut</w>"
+        assertEquals(256, tokens[5])   // "!</w>"
+        assertEquals(49407, tokens[6]) // EOS
+    }
+
+    @Test
+    fun testCustomVocabAndMergesSecondaryConstructor() {
+        val customVocab = mapOf(
+            "<|startoftext|>" to 49406,
+            "<|endoftext|>" to 49407,
+            "<|pad|>" to 49407,
+            "h" to 0,
+            "i" to 1,
+            "hi</w>" to 2
+        )
+        val customMerges = listOf("h" to "i</w>")
+        val tokenizer = ClipTokenizer(customVocab, customMerges)
+        assertEquals(customMerges, tokenizer.merges)
+    }
+
+    @Test
+    fun testDefaultMergesCount() {
+        assertEquals(48894, ClipTokenizer.DEFAULT_MERGES.size)
+        assertEquals(49408, ClipTokenizer.DEFAULT_VOCAB.size)
+    }
 }
