@@ -52,16 +52,15 @@ class HistoryRepository(
     suspend fun searchHistory(query: String): List<GenerationEntity> = search(query)
 
     suspend fun delete(id: Long, deleteFile: Boolean = false): Boolean = withContext(ioDispatcher) {
-        if (deleteFile) {
-            dao.getById(id)?.imagePath?.let { path ->
-                try {
-                    File(path).delete()
-                } catch (_: Exception) {}
-            }
-        }
+        val imagePath = if (deleteFile) dao.getById(id)?.imagePath else null
         val success = dao.delete(id)
         if (success) {
             _historyList.value = dao.getAll()
+            if (imagePath != null) {
+                try {
+                    File(imagePath).delete()
+                } catch (_: Exception) {}
+            }
         }
         success
     }
@@ -70,18 +69,18 @@ class HistoryRepository(
 
     suspend fun deleteBatch(ids: Set<Long>, deleteFiles: Boolean = false): Int = withContext(ioDispatcher) {
         if (ids.isEmpty()) return@withContext 0
-        if (deleteFiles) {
-            ids.forEach { id ->
-                dao.getById(id)?.imagePath?.let { path ->
-                    try {
-                        File(path).delete()
-                    } catch (_: Exception) {}
-                }
-            }
-        }
+        val pathsToDelete = if (deleteFiles) {
+            _historyList.value.filter { it.id in ids }.map { it.imagePath }
+        } else emptyList()
+
         val count = dao.deleteBatch(ids)
         if (count > 0) {
             _historyList.value = dao.getAll()
+            for (path in pathsToDelete) {
+                try {
+                    File(path).delete()
+                } catch (_: Exception) {}
+            }
         }
         count
     }
@@ -89,15 +88,18 @@ class HistoryRepository(
     suspend fun deleteRecords(ids: Set<Long>, deleteFiles: Boolean = false): Int = deleteBatch(ids, deleteFiles)
 
     suspend fun clearAll(deleteFiles: Boolean = false) = withContext(ioDispatcher) {
-        if (deleteFiles) {
-            dao.getAll().forEach { record ->
-                try {
-                    File(record.imagePath).delete()
-                } catch (_: Exception) {}
-            }
-        }
+        val pathsToDelete = if (deleteFiles) {
+            _historyList.value.map { it.imagePath }
+        } else emptyList()
+
         dao.clearAll()
         _historyList.value = emptyList()
+
+        for (path in pathsToDelete) {
+            try {
+                File(path).delete()
+            } catch (_: Exception) {}
+        }
     }
 
     suspend fun refresh() = withContext(ioDispatcher) {

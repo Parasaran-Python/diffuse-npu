@@ -144,6 +144,18 @@ class HistoryRepositoryTest {
     }
 
     @Test
+    fun testDeleteWithPhysicalFileCleanup() = runBlocking {
+        val dummyFile = File(testImagesDir, "test_delete.png")
+        dummyFile.writeText("dummy png content")
+        assertTrue(dummyFile.exists())
+
+        val id = repository.insert(GenerationEntity(id = 0, prompt = "to delete", imagePath = dummyFile.absolutePath))
+        val deleted = repository.delete(id, deleteFile = true)
+        assertTrue(deleted)
+        assertFalse("Physical file should be deleted", dummyFile.exists())
+    }
+
+    @Test
     fun testScanAndSyncFileSystemDiscoversUnindexedPngs() = runBlocking {
         // Create mock PNG files in testImagesDir
         val png1 = File(testImagesDir, "sd_1725612345678_0.png")
