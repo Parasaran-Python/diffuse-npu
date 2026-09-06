@@ -36,6 +36,11 @@ class PipelineManager(
             return@channelFlow
         }
 
+        if (!com.example.sdnpu.system.MemoryDiagnostics.isMemorySafeForGeneration(requiredFreeMb = 1000L)) {
+            send(PipelineState.Error("Insufficient system memory available for generation (<1GB free)"))
+            return@channelFlow
+        }
+
         try {
             val startTime = System.currentTimeMillis()
             send(PipelineState.LoadingModel(params.modelId))
@@ -154,7 +159,8 @@ class PipelineManager(
         outputFile.parentFile?.mkdirs()
         var bitmap: Bitmap? = null
         try {
-            bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            bitmap = com.example.sdnpu.system.BitmapPool.acquire(width, height)
+                ?: Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(bytes))
             FileOutputStream(outputFile).use { fos ->
                 bitmap.compress(Bitmap.CompressFormat.PNG, 100, fos)
@@ -163,10 +169,8 @@ class PipelineManager(
             // Fallback for JVM unit tests where Bitmap native implementation is not mocked
             writePngFallback(bytes, width, height, outputFile)
         } finally {
-            try {
-                bitmap?.recycle()
-            } catch (_: Throwable) {
-                // Ignore if recycle is not mocked or unavailable on host JVM
+            if (bitmap != null) {
+                com.example.sdnpu.system.BitmapPool.release(bitmap)
             }
         }
     }

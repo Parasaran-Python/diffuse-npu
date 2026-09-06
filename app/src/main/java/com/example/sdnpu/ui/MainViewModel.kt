@@ -161,6 +161,17 @@ class MainViewModel(
         viewModelScope.launch {
             historyRepository.scanAndSyncFileSystem()
         }
+        viewModelScope.launch {
+            combine(appSettings, thermalStatus) { settings, thermal ->
+                when {
+                    thermal.isThrottlingSevere() -> com.example.sdnpu.model.HtpPowerProfile.POWER_SAVER
+                    settings.highPerformanceMode -> com.example.sdnpu.model.HtpPowerProfile.HIGH_PERFORMANCE
+                    else -> com.example.sdnpu.model.HtpPowerProfile.DEFAULT
+                }
+            }.collect { profile ->
+                QnnNativeBridge.setHtpPerformanceProfile(profile)
+            }
+        }
     }
 
     fun updateParams(newParams: GenerationParams) {

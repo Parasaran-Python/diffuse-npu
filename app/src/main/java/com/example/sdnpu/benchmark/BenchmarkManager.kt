@@ -66,6 +66,9 @@ class BenchmarkManager(
                         if (clipEndMs == 0L) {
                             clipEndMs = System.currentTimeMillis()
                         }
+                        if (state.step >= state.totalSteps) {
+                            unetEndMs = System.currentTimeMillis()
+                        }
                     }
                     is PipelineState.Upscaling -> {
                         if (unetEndMs == 0L) {
