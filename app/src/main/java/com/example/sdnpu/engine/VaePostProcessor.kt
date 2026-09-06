@@ -29,14 +29,18 @@ object VaePostProcessor {
                 val b = clamp((bFloat + 1.0f) * 127.5f)
 
                 val outIdx = (y * width + x) * 4
-                bytes[outIdx] = b.toByte()
+                bytes[outIdx] = r.toByte()
                 bytes[outIdx + 1] = g.toByte()
-                bytes[outIdx + 2] = r.toByte()
+                bytes[outIdx + 2] = b.toByte()
                 bytes[outIdx + 3] = 255.toByte() // Alpha
             }
         }
         return bytes
     }
 
-    private fun clamp(v: Float): Int = max(0, min(255, v.toInt()))
+    private fun clamp(v: Float): Int {
+        if (v.isNaN() || v <= 0f) return 0
+        if (v >= 255f) return 255
+        return v.toInt()
+    }
 }

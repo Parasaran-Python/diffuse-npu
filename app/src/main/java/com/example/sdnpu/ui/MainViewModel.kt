@@ -21,7 +21,10 @@ import java.io.File
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val modelManager = ModelManager(File(application.filesDir, "models"))
-    private val pipelineManager = PipelineManager()
+    private val pipelineManager = PipelineManager(
+        modelsDir = File(application.filesDir, "models"),
+        outputDir = File(application.filesDir, "generations")
+    )
 
     private var generationJob: Job? = null
     private var downloadJob: Job? = null

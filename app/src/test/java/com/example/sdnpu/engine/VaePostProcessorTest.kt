@@ -35,14 +35,14 @@ class VaePostProcessorTest {
         val rgb = VaePostProcessor.latentsToRgbBytes(latents, 64, 64)
         assertEquals(64 * 64 * 4, rgb.size)
 
-        val b = rgb[0].toInt() and 0xFF
+        val r = rgb[0].toInt() and 0xFF
         val g = rgb[1].toInt() and 0xFF
-        val r = rgb[2].toInt() and 0xFF
+        val b = rgb[2].toInt() and 0xFF
         val a = rgb[3].toInt() and 0xFF
 
-        assertEquals(255, b)
-        assertEquals(127, g)
         assertEquals(0, r)
+        assertEquals(127, g)
+        assertEquals(255, b)
         assertEquals(255, a)
     }
 

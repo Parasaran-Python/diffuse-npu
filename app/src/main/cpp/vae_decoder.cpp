@@ -28,14 +28,14 @@ bool VaeDecoder::decode(const float* latents, int latentSize, uint8_t* outRgb, i
             float gF = (lIdx + latentArea < latentSize) ? latents[lIdx + latentArea] * scale : 0.0f;
             float bF = (lIdx + 2 * latentArea < latentSize) ? latents[lIdx + 2 * latentArea] * scale : 0.0f;
 
-            int r = std::clamp(static_cast<int>((rF + 1.0f) * 127.5f), 0, 255);
-            int g = std::clamp(static_cast<int>((gF + 1.0f) * 127.5f), 0, 255);
-            int b = std::clamp(static_cast<int>((bF + 1.0f) * 127.5f), 0, 255);
+            int r = static_cast<int>(std::clamp((rF + 1.0f) * 127.5f, 0.0f, 255.0f));
+            int g = static_cast<int>(std::clamp((gF + 1.0f) * 127.5f, 0.0f, 255.0f));
+            int b = static_cast<int>(std::clamp((bF + 1.0f) * 127.5f, 0.0f, 255.0f));
 
             int outIdx = (y * width + x) * 4;
-            outRgb[outIdx] = static_cast<uint8_t>(b);
+            outRgb[outIdx] = static_cast<uint8_t>(r);
             outRgb[outIdx + 1] = static_cast<uint8_t>(g);
-            outRgb[outIdx + 2] = static_cast<uint8_t>(r);
+            outRgb[outIdx + 2] = static_cast<uint8_t>(b);
             outRgb[outIdx + 3] = 255;
         }
     }

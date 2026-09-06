@@ -24,6 +24,7 @@ add_library(
     scheduler.cpp
     unet_denoiser.cpp
     vae_decoder.cpp
+    sd_pipeline.cpp
     jni_bridge.cpp
 )
 

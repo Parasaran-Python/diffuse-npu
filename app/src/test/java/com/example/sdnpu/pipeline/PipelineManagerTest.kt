@@ -70,4 +70,28 @@ class PipelineManagerTest {
         val error = states[0] as PipelineState.Error
         assertEquals("Prompt cannot be empty", error.error)
     }
+
+    @Test
+    fun testGenerateImageSavesFileAndEmitsCompleted(): Unit = runBlocking {
+        val testOutputDir = java.io.File(System.getProperty("java.io.tmpdir"), "test_pipeline_gen_${System.currentTimeMillis()}")
+        val customPipelineManager = PipelineManager(outputDir = testOutputDir)
+
+        val params = GenerationParams(
+            prompt = "a cute puppy running on grass",
+            steps = 10,
+            upscaleMode = UpscaleMode.OFF
+        )
+
+        val states = customPipelineManager.generateImage(params).toList()
+        val completed = states.last() as PipelineState.Completed
+
+        assertNotNull(completed.imagePath)
+        val file = java.io.File(completed.imagePath!!)
+        assertTrue("Generated image file should exist on disk", file.exists())
+        assertTrue("Generated image file should have non-zero size", file.length() > 0)
+
+        // Clean up
+        file.delete()
+        testOutputDir.delete()
+    }
 }
