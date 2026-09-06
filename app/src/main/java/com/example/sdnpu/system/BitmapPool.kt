@@ -1,12 +1,12 @@
 package com.example.sdnpu.system
 
 import android.graphics.Bitmap
-import java.util.concurrent.ConcurrentLinkedQueue
 
 object BitmapPool {
-    private val pool = ConcurrentLinkedQueue<Bitmap>()
-    private const val MAX_POOL_SIZE = 4
+    private val pool = mutableListOf<Bitmap>()
+    const val MAX_POOL_SIZE = 4
 
+    @Synchronized
     fun acquire(width: Int, height: Int): Bitmap? {
         val iterator = pool.iterator()
         while (iterator.hasNext()) {
@@ -23,10 +23,12 @@ object BitmapPool {
         return null
     }
 
+    @Synchronized
     fun release(bitmap: Bitmap?) {
         if (bitmap == null || bitmap.isRecycled) return
+        if (pool.contains(bitmap)) return
         if (pool.size < MAX_POOL_SIZE) {
-            pool.offer(bitmap)
+            pool.add(bitmap)
         } else {
             try {
                 bitmap.recycle()
@@ -34,16 +36,18 @@ object BitmapPool {
         }
     }
 
+    @Synchronized
     fun size(): Int = pool.size
 
+    @Synchronized
     fun clear() {
-        while (pool.isNotEmpty()) {
-            val b = pool.poll()
-            if (b != null && !b.isRecycled) {
+        for (b in pool) {
+            if (!b.isRecycled) {
                 try {
                     b.recycle()
                 } catch (_: Throwable) {}
             }
         }
+        pool.clear()
     }
 }

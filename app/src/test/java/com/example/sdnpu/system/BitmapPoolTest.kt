@@ -72,6 +72,18 @@ class BitmapPoolTest {
         assertEquals(0, BitmapPool.size())
     }
 
+    @Test
+    fun testDuplicateReleaseIgnored() {
+        val bitmap = createTestBitmap()
+        if (bitmap != null) {
+            BitmapPool.release(bitmap)
+            assertEquals(1, BitmapPool.size())
+            BitmapPool.release(bitmap)
+            assertEquals(1, BitmapPool.size())
+            BitmapPool.clear()
+        }
+    }
+
     private fun createTestBitmap(): Bitmap? {
         return try {
             val field = Class.forName("sun.misc.Unsafe").getDeclaredField("theUnsafe")

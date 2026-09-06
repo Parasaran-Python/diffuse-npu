@@ -14,6 +14,7 @@ data class MemorySnapshot(
 )
 
 object MemoryDiagnostics {
+    const val MAX_PEAK_RAM_MB = 4096L
 
     fun getMemorySnapshot(context: Context? = null): MemorySnapshot {
         val runtime = Runtime.getRuntime()
@@ -59,7 +60,8 @@ object MemoryDiagnostics {
 
     fun isMemorySafeForGeneration(requiredFreeMb: Long = 1500L, context: Context? = null): Boolean {
         val snapshot = getMemorySnapshot(context)
-        return snapshot.availableRamMb >= requiredFreeMb && !snapshot.isLowMemory
+        val appAllocatedMb = snapshot.nativeHeapAllocatedMb + snapshot.jvmHeapAllocatedMb
+        return snapshot.availableRamMb >= requiredFreeMb && !snapshot.isLowMemory && appAllocatedMb < MAX_PEAK_RAM_MB
     }
 
     fun verifySequentialContextLifecycle(sdLoaded: Boolean, esrganLoaded: Boolean): Boolean {
