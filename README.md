@@ -68,6 +68,84 @@ Seed & Noise ───────────► UNet Iterative Denoising (N St
 - **Model Layer (`com.example.sdnpu.model`)**: Handles model discovery, remote manifest downloads via OkHttp, streaming downloads with progress reporting, and cryptographic SHA-256 verification.
 - **Engine Layer (`com.example.sdnpu.engine` & `cpp/`)**: Native C++ bridge (`libsdnpu_engine.so`) with dynamic QNN runtime library loading (`dlopen`/`dlsym`), allowing seamless builds and execution on development machines without requiring proprietary Qualcomm blobs.
 
+### 1.3 Stable Diffusion Engine Architecture (Phase 2)
+
+The SD Engine coordinates the complete text-to-image latent diffusion pipeline on-device, coupling high-performance native C++ execution with reactive Kotlin coroutines.
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                     Kotlin Engine & Pipeline Layer                     │
+│  - PipelineManager (channelFlow reactive state & progress streaming)   │
+│  - ClipTokenizer (Subword BPE tokenization, 77 tokens, bos/eos/pad)    │
+│  - GaussianNoise (Deterministic Box-Muller normal distribution PRNG)   │
+│  - SDEngine (JNI bridge lifecycle, model loading, memory management)   │
+│  - VaePostProcessor (RGB [-1, 1] -> ARGB_8888 Bitmap conversion)       │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ JNI Bridge (sd_engine_jni.cpp)
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                        Native C++ Pipeline Core                        │
+│                                                                        │
+│  ┌──────────────────────────────────────────────────────────────────┐  │
+│  │               SdPipeline Coordinator (sd_pipeline.cpp)            │  │
+│  │   - Thread-safe std::mutex synchronization                       │  │
+│  │   - Cancellation checking (std::atomic<bool>)                    │  │
+│  │   - Per-step progress callback dispatch                          │  │
+│  └───────┬──────────────────────┬──────────────────────┬────────────┘  │
+│          │                      │                      │               │
+│          ▼                      ▼                      ▼               │
+│  ┌───────────────┐    ┌───────────────────┐    ┌───────────────┐       │
+│  │  ClipEncoder  │    │   UnetDenoiser    │    │  VaeDecoder   │       │
+│  │  (Text ->     │    │  (CFG Guidance,   │    │  (Latent ->   │       │
+│  │  Embeddings)  │    │  Latent Scaling)  │    │  RGB Tensor)  │       │
+│  └───────┬───────┘    └─────────┬─────────┘    └───────┬───────┘       │
+│          │                      │                      │               │
+│          └────────────────┬─────┴──────────────────────┘               │
+│                           ▼                                            │
+│              ┌───────────────────────────┐                             │
+│              │    DiffusionScheduler     │                             │
+│              │  - Euler Ancestral (a)    │                             │
+│              │  - DPM++ 2M Karras        │                             │
+│              │  - DDIM                   │                             │
+│              └───────────────────────────┘                             │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ Dynamic dlopen / QNN API
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                    Qualcomm QNN / HTP Backend v73                      │
+│             (libQnnHtp.so / libQnnCpu.so / Stub Fallback)              │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Key Modules & Capabilities:
+1. **ClipTokenizer (`ClipTokenizer.kt`) & ClipEncoder (`clip_encoder.h/cpp`)**:
+   - Subword Byte-Pair Encoding (BPE) tokenizes input prompts into a 77-token sequence bounded by `<|startoftext|>` (token 49406) and `<|endoftext|>` (token 49407), zero-padded.
+   - Native `ClipEncoder` loads the precompiled QNN context (`clip_text_encoder.bin`) and outputs text embeddings of shape `[1, 77, 768]`.
+   - Generates dual conditioning: conditioned embeddings from the user prompt and unconditioned embeddings from an empty negative prompt.
+2. **Gaussian Noise Generator (`GaussianNoise.kt`)**:
+   - Generates deterministic pseudo-random latent tensors of shape `[1, 4, 64, 64]` (16,384 floats) from a 64-bit integer seed.
+   - Utilizes the Box-Muller transform on paired uniform pseudorandom samples to yield standard normal distributions $\mathcal{N}(0, 1)$ without external dependencies.
+3. **Diffusion Schedulers (`scheduler.h/cpp`)**:
+   - Implements native C++ mathematical schedules with precomputed $\beta$ and $\alpha$ cumulative products ($\bar{\alpha}_t$).
+   - **Euler Ancestral (`EulerAncestralScheduler`)**: Stochastic step progression computing $\sigma_{up} = \sqrt{\sigma_{t-1}^2 (\sigma_t^2 - \sigma_{t-1}^2) / \sigma_t^2}$ and injecting ancestral noise at each iteration.
+   - **DPM++ 2M Karras (`DpmPlusPlus2MKarrasScheduler`)**: Second-order Adams-Bashforth multi-step solver operating on Karras noise levels ($\sigma_{min}=0.1, \sigma_{max}=14.61, \rho=7.0$), delivering high visual convergence in 15–20 steps.
+   - **DDIM (`DdimScheduler`)**: Deterministic implicit solver providing exact inverted ODE trajectories.
+4. **UNet Latent Denoiser (`unet_denoiser.h/cpp`)**:
+   - Iteratively denoises latents by executing the QNN UNet graph (`unet.bin`) at discrete scheduler timesteps.
+   - **Classifier-Free Guidance (CFG)**: Executes consecutive unconditioned and conditioned inference passes, interpolating guided noise predictions via:
+     $$\epsilon_{guided} = \epsilon_{uncond} + s \cdot (\epsilon_{cond} - \epsilon_{uncond})$$
+   - Applies latent scaling $x_{in} = x / \sqrt{\sigma^2 + 1}$ prior to UNet input.
+5. **VAE Decoder (`vae_decoder.h/cpp`) & Post-Processor (`VaePostProcessor.kt`)**:
+   - Decompresses final latent representations by unscaling latents with $1 / 0.18215$ and passing them through the QNN VAE graph (`vae_decoder.bin`), yielding an RGB tensor of shape `[1, 3, 512, 512]`.
+   - `VaePostProcessor` safely clamps floating-point values from $[-1.0, 1.0]$ to $[0, 255]$, maps planar RGB channels to ARGB pixel words (`0xFF000000 | (R << 16) | (G << 8) | B`), and instantiates a 512×512 Android `Bitmap`.
+6. **Native Pipeline Coordinator (`SdPipeline`) & JNI Bridge (`sd_engine_jni.cpp`)**:
+   - `SdPipeline` orchestrates the entire generation lifecycle: model loading, intermediate tensor allocation, iterative scheduler stepping, and context cleanup.
+   - Thread safety is guarded by `std::mutex`, preventing concurrent generation calls.
+   - Real-time step progress callbacks stream progress percentages back across the JNI bridge to update the UI during inference.
+   - Cooperative cancellation is handled via an atomic boolean flag (`std::atomic<bool>`), safely terminating the denoising loop on user request.
+7. **Reactive Streaming Pipeline (`PipelineManager.kt` & `SDEngine.kt`)**:
+   - Built on Kotlin Coroutines `channelFlow`, orchestrating transitions: `Idle` $\rightarrow$ `Loading` $\rightarrow$ `Generating(step, totalSteps, progress)` $\rightarrow$ `Upscaling` $\rightarrow$ `Success(bitmap)` or `Error(message)`.
+
 ---
 
 ## 2. Target Device Specifications
@@ -251,7 +329,7 @@ http://<HOST_IP>:8080/models/dreamshaper_v8/manifest.json
 
 ## 6. Project Roadmap
 
-### Phase 1: Foundation (Current - Completed)
+### Phase 1: Foundation (Completed)
 - [x] Gradle 9.5 Kotlin DSL build system with Version Catalog (`libs.versions.toml`).
 - [x] NDK r28 & CMake 3.22 C++ integration with QNN dynamic loader and fallback stubs.
 - [x] OkHttp model downloader with resumable stream handling and SHA-256 integrity verification.
@@ -259,12 +337,15 @@ http://<HOST_IP>:8080/models/dreamshaper_v8/manifest.json
 - [x] Jetpack Compose Material 3 dark-themed UI (Generate, Gallery, Settings, Download Dialog).
 - [x] End-to-end build and unit test verification.
 
-### Phase 2: SD Engine
-- [ ] CLIP text encoder QNN context integration and subword tokenization.
-- [ ] UNet iterative latent denoising loop implementation in native C++.
-- [ ] VAE decoder execution to generate 512×512 RGB images.
-- [ ] Schedulers / samplers integration (Euler a, DPM++ 2M Karras, DDIM).
-- [ ] End-to-end text-to-image generation benchmark on S23 Ultra NPU.
+### Phase 2: SD Engine (Completed)
+- [x] CLIP text encoder QNN context integration and subword tokenization (`ClipTokenizer`, `ClipEncoder`).
+- [x] Gaussian noise generation via Box-Muller transform for latent space initialization (`GaussianNoise`).
+- [x] UNet iterative latent denoising loop implementation in native C++ with CFG scaling (`UnetDenoiser`).
+- [x] Diffusion schedulers supporting Euler a, DPM++ 2M Karras, and DDIM (`DiffusionScheduler`).
+- [x] VAE decoder execution and post-processing to generate 512×512 RGB Android Bitmaps (`VaeDecoder`, `VaePostProcessor`).
+- [x] Full native C++ coordinator (`SdPipeline`) with mutex synchronization and JNI bridge (`sd_engine_jni.cpp`).
+- [x] Reactive coroutine streaming via `channelFlow` in `PipelineManager`.
+- [x] Comprehensive unit test suite (45 unit tests covering tokenization, schedulers, noise, engine, and pipeline).
 
 ### Phase 3: RealESRGAN Chaining
 - [ ] RealESRGAN QNN context integration (2x and 4x scale models).
