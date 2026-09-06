@@ -114,8 +114,9 @@ class MainViewModelTest {
     fun testInitialParamsAndSettings() = runBlocking {
         val params = viewModel.params.value
         assertNotNull(params)
-        assertEquals(20, params.steps)
-        assertEquals(7.0f, params.cfgScale, 0.001f)
+        assertEquals("sdturbo", params.modelId)
+        assertEquals(1, params.steps)
+        assertEquals(1.0f, params.cfgScale, 0.001f)
 
         val settings = viewModel.appSettings.value
         assertEquals("NPU", settings.backendPreference)

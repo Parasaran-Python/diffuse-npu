@@ -158,10 +158,15 @@ data class ModelVariant(
 object ModelVariants {
     val SD_VARIANTS = listOf(
         ModelVariant(
+            id = "sdturbo",
+            name = "SD-Turbo (ONNX / LCM)",
+            description = "Fast 1-4 step inference with ONNX Runtime & QNN NPU",
+            isDefault = true
+        ),
+        ModelVariant(
             id = "dreamshaper_v8_base",
             name = "DreamShaper v8 (General)",
-            description = "Balanced photorealistic & artistic SD 1.5 model",
-            isDefault = true
+            description = "Balanced photorealistic & artistic SD 1.5 model"
         ),
         ModelVariant(
             id = "dreamshaper_v8_anime",
@@ -172,11 +177,6 @@ object ModelVariants {
             id = "dreamshaper_v8_realistic",
             name = "DreamShaper v8 (Realistic)",
             description = "Enhanced for lifelike human faces and natural scenes"
-        ),
-        ModelVariant(
-            id = "sdturbo",
-            name = "SD-Turbo (ONNX / LCM)",
-            description = "Fast 1-4 step inference with ONNX Runtime & QNN NPU"
         )
     )
 
@@ -198,15 +198,15 @@ object ModelDownloadPresets {
         ModelDownloadPreset(
             id = "sdturbo",
             name = "SD-Turbo (ONNX / LCM)",
-            defaultUrl = "https://huggingface.co/Heliosoph/sd-turbo-onnx/resolve/main/",
-            description = "1-4 step inference with ONNX Runtime Mobile & Qualcomm NPU",
+            defaultUrl = "https://huggingface.co/microsoft/sd-turbo-webnn/resolve/main/",
+            description = "1-4 step inference with ONNX Runtime Mobile & Qualcomm NPU (Official Microsoft Weights)",
             isDefault = true
         ),
         ModelDownloadPreset(
             id = "dreamshaper_v8_base",
             name = "DreamShaper v8 (General)",
-            defaultUrl = "http://192.168.1.100:8080/models/dreamshaper_v8_base/",
-            description = "Standard SD 1.5 weights (Local Wi-Fi / Custom server)"
+            defaultUrl = "",
+            description = "Standard SD 1.5 weights (Requires custom server or LAN URL)"
         ),
         ModelDownloadPreset(
             id = "custom",
