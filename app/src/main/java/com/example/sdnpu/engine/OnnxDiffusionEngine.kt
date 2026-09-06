@@ -3,6 +3,7 @@ package com.example.sdnpu.engine
 import ai.onnxruntime.OnnxJavaType
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
+import ai.onnxruntime.OrtException
 import ai.onnxruntime.OrtSession
 import ai.onnxruntime.TensorInfo
 import com.example.sdnpu.pipeline.GenerationParams
@@ -18,28 +19,14 @@ object OnnxDiffusionEngine {
     @Volatile
     private var isCancelled = false
 
+    /**
+     * Test-only toggle for unit test environments where native Android NPU/QNN/ORT
+     * binaries and multi-gigabyte models are not loaded.
+     */
     @Volatile
-    var isTestMode: Boolean = false
+    var testSimulationEnabled: Boolean = false
 
     const val VAE_SCALE_FACTOR = 0.18215f
-
-    init {
-        // Stage default test fixtures in temporary directories for unit tests
-        try {
-            stageTestFixtures(File(System.getProperty("java.io.tmpdir"), "models"), "dreamshaper_v8_base")
-            stageTestFixtures(File(System.getProperty("java.io.tmpdir"), "models"), "sdturbo")
-            stageTestFixtures(File(System.getProperty("java.io.tmpdir"), "test_models"), "dreamshaper_v8_base")
-            stageTestFixtures(File(System.getProperty("java.io.tmpdir"), "test_models"), "sdturbo")
-        } catch (_: Throwable) {}
-    }
-
-    fun stageTestFixtures(baseDir: File, modelId: String): File {
-        val dir = File(baseDir, modelId).apply { mkdirs() }
-        File(dir, "text_encoder.onnx").createNewFile()
-        File(dir, "unet.onnx").createNewFile()
-        File(dir, "vae_decoder.onnx").createNewFile()
-        return dir
-    }
 
     fun cancel() {
         isCancelled = true
@@ -47,6 +34,7 @@ object OnnxDiffusionEngine {
 
     fun createSessionOptions(): OrtSession.SessionOptions {
         val options = OrtSession.SessionOptions()
+        options.setIntraOpNumThreads(4)
         try {
             val qnnOptions = mapOf(
                 "backend_type" to "HTP",
@@ -56,13 +44,38 @@ object OnnxDiffusionEngine {
         } catch (_: Throwable) {
             try {
                 options.addNnapi()
-            } catch (_: Throwable) {
-                try {
-                    options.setIntraOpNumThreads(4)
-                } catch (_: Throwable) {}
-            }
+            } catch (_: Throwable) {}
         }
         return options
+    }
+
+    fun createSession(env: OrtEnvironment, modelFile: File): OrtSession {
+        // Tier 1: Try Qualcomm QNN Execution Provider (HTP Backend)
+        try {
+            val qnnOptions = OrtSession.SessionOptions().apply {
+                setIntraOpNumThreads(4)
+                addQnn(mapOf(
+                    "backend_type" to "HTP",
+                    "htp_performance_mode" to "burst"
+                ))
+            }
+            return env.createSession(modelFile.absolutePath, qnnOptions)
+        } catch (_: Throwable) {
+            // Tier 2: Try Android NNAPI Execution Provider
+            try {
+                val nnapiOptions = OrtSession.SessionOptions().apply {
+                    setIntraOpNumThreads(4)
+                    addNnapi()
+                }
+                return env.createSession(modelFile.absolutePath, nnapiOptions)
+            } catch (_: Throwable) {
+                // Tier 3: Fallback to CPU with multi-threading
+                val cpuOptions = OrtSession.SessionOptions().apply {
+                    setIntraOpNumThreads(4)
+                }
+                return env.createSession(modelFile.absolutePath, cpuOptions)
+            }
+        }
     }
 
     fun eulerStep(
@@ -120,7 +133,9 @@ object OnnxDiffusionEngine {
             ?: textEncoderSession.inputNames.iterator().next()
 
         val inputInfo = textEncoderSession.inputInfo[inputName]?.info as? TensorInfo
-        val inputTensor = if (inputInfo?.type == OnnxJavaType.INT64) {
+        val isInputInt64 = inputInfo?.type == OnnxJavaType.INT64
+
+        val inputTensor = if (isInputInt64) {
             val longBuffer = LongBuffer.allocate(promptTokens.size)
             promptTokens.forEach { longBuffer.put(it.toLong()) }
             longBuffer.flip()
@@ -130,15 +145,55 @@ object OnnxDiffusionEngine {
             OnnxTensor.createTensor(env, intBuffer, longArrayOf(1, promptTokens.size.toLong()))
         }
 
-        inputTensor.use { tensor ->
-            val output = textEncoderSession.run(mapOf(inputName to tensor))
-            output.use { res ->
-                val outTensor = res.get(0) as OnnxTensor
-                val floatBuf = outTensor.floatBuffer
+        // If session expects attention_mask, bind an all-ones [1, 77] tensor
+        val maskName = textEncoderSession.inputNames.firstOrNull { it.contains("attention_mask") }
+        val maskTensor = maskName?.let { name ->
+            val maskInfo = textEncoderSession.inputInfo[name]?.info as? TensorInfo
+            if (maskInfo?.type == OnnxJavaType.INT64) {
+                val longBuf = LongBuffer.allocate(promptTokens.size)
+                repeat(promptTokens.size) { longBuf.put(1L) }
+                longBuf.flip()
+                OnnxTensor.createTensor(env, longBuf, longArrayOf(1, promptTokens.size.toLong()))
+            } else {
+                val intBuf = IntBuffer.allocate(promptTokens.size)
+                repeat(promptTokens.size) { intBuf.put(1) }
+                intBuf.flip()
+                OnnxTensor.createTensor(env, intBuf, longArrayOf(1, promptTokens.size.toLong()))
+            }
+        }
+
+        val inputs = mutableMapOf<String, OnnxTensor>(inputName to inputTensor)
+        if (maskName != null && maskTensor != null) {
+            inputs[maskName] = maskTensor
+        }
+
+        try {
+            val result = textEncoderSession.run(inputs)
+            result.use { res ->
+                // Find output tensor by name containing "last_hidden_state" or matching 77 * 768 count
+                var chosenTensor: OnnxTensor? = null
+                for (entry in res) {
+                    val tensor = entry.value as? OnnxTensor ?: continue
+                    if (entry.key.contains("last_hidden_state")) {
+                        chosenTensor = tensor
+                        break
+                    }
+                    if (tensor.floatBuffer.remaining() == 77 * 768) {
+                        chosenTensor = tensor
+                    }
+                }
+                if (chosenTensor == null) {
+                    chosenTensor = res.get(0) as OnnxTensor
+                }
+
+                val floatBuf = chosenTensor.floatBuffer
                 val embeddings = FloatArray(floatBuf.remaining())
                 floatBuf.get(embeddings)
                 return embeddings
             }
+        } finally {
+            inputTensor.close()
+            maskTensor?.close()
         }
     }
 
@@ -154,68 +209,72 @@ object OnnxDiffusionEngine {
         val tempLatents = FloatArray(currentLatents.size)
         val numSteps = steps.coerceIn(1, 50)
 
-        for (stepIndex in 0 until numSteps) {
-            if (isCancelled) {
-                throw CancellationException("Generation cancelled")
-            }
+        // Allocate hiddenTensor once outside the step loop and reuse across all steps
+        val hiddenName = unetSession.inputNames.firstOrNull {
+            it.contains("hidden") || it.contains("context")
+        } ?: "encoder_hidden_states"
+        val hiddenTensor = OnnxTensor.createTensor(
+            env,
+            FloatBuffer.wrap(textEmbeddings),
+            longArrayOf(1, 77, textEmbeddings.size / 77L)
+        )
 
-            val sigma = 1.0f - (stepIndex.toFloat() / numSteps.toFloat())
-            val nextSigma = 1.0f - ((stepIndex + 1).toFloat() / numSteps.toFloat())
-            val timestepVal = 999.0f * sigma
-
-            val sampleTensor = OnnxTensor.createTensor(
-                env,
-                FloatBuffer.wrap(currentLatents),
-                longArrayOf(1, 4, 64, 64)
-            )
-
-            val timestepName = unetSession.inputNames.firstOrNull { it.contains("time") } ?: "timestep"
-            val timeInfo = unetSession.inputInfo[timestepName]?.info as? TensorInfo
-            val timestepTensor = if (timeInfo?.type == OnnxJavaType.INT64) {
-                val buf = LongBuffer.wrap(longArrayOf(timestepVal.toLong()))
-                OnnxTensor.createTensor(env, buf, longArrayOf(1))
-            } else {
-                val buf = FloatBuffer.wrap(floatArrayOf(timestepVal))
-                OnnxTensor.createTensor(env, buf, longArrayOf(1))
-            }
-
-            val hiddenName = unetSession.inputNames.firstOrNull {
-                it.contains("hidden") || it.contains("context")
-            } ?: "encoder_hidden_states"
-            val hiddenTensor = OnnxTensor.createTensor(
-                env,
-                FloatBuffer.wrap(textEmbeddings),
-                longArrayOf(1, 77, textEmbeddings.size / 77L)
-            )
-
-            val sampleName = unetSession.inputNames.firstOrNull {
-                it.contains("sample") || it.contains("latent")
-            } ?: "sample"
-
-            val inputs = mapOf(
-                sampleName to sampleTensor,
-                timestepName to timestepTensor,
-                hiddenName to hiddenTensor
-            )
-
-            try {
-                val result = unetSession.run(inputs)
-                result.use { res ->
-                    val noisePredTensor = res.get(0) as OnnxTensor
-                    val noiseBuf = noisePredTensor.floatBuffer
-                    val noisePred = FloatArray(noiseBuf.remaining())
-                    noiseBuf.get(noisePred)
-
-                    eulerStep(currentLatents, noisePred, sigma, nextSigma, tempLatents)
-                    System.arraycopy(tempLatents, 0, currentLatents, 0, currentLatents.size)
+        try {
+            for (stepIndex in 0 until numSteps) {
+                if (isCancelled) {
+                    throw CancellationException("Generation cancelled")
                 }
-            } finally {
-                sampleTensor.close()
-                timestepTensor.close()
-                hiddenTensor.close()
-            }
 
-            onStep?.invoke(stepIndex + 1, numSteps)
+                val sigma = 1.0f - (stepIndex.toFloat() / numSteps.toFloat())
+                val nextSigma = 1.0f - ((stepIndex + 1).toFloat() / numSteps.toFloat())
+                val timestepVal = 999.0f * sigma
+
+                val sampleTensor = OnnxTensor.createTensor(
+                    env,
+                    FloatBuffer.wrap(currentLatents),
+                    longArrayOf(1, 4, 64, 64)
+                )
+
+                val timestepName = unetSession.inputNames.firstOrNull { it.contains("time") } ?: "timestep"
+                val timeInfo = unetSession.inputInfo[timestepName]?.info as? TensorInfo
+                val timestepTensor = if (timeInfo?.type == OnnxJavaType.INT64) {
+                    val buf = LongBuffer.wrap(longArrayOf(timestepVal.toLong()))
+                    OnnxTensor.createTensor(env, buf, longArrayOf(1))
+                } else {
+                    val buf = FloatBuffer.wrap(floatArrayOf(timestepVal))
+                    OnnxTensor.createTensor(env, buf, longArrayOf(1))
+                }
+
+                val sampleName = unetSession.inputNames.firstOrNull {
+                    it.contains("sample") || it.contains("latent")
+                } ?: "sample"
+
+                val inputs = mapOf(
+                    sampleName to sampleTensor,
+                    timestepName to timestepTensor,
+                    hiddenName to hiddenTensor
+                )
+
+                try {
+                    val result = unetSession.run(inputs)
+                    result.use { res ->
+                        val noisePredTensor = res.get(0) as OnnxTensor
+                        val noiseBuf = noisePredTensor.floatBuffer
+                        val noisePred = FloatArray(noiseBuf.remaining())
+                        noiseBuf.get(noisePred)
+
+                        eulerStep(currentLatents, noisePred, sigma, nextSigma, tempLatents)
+                        System.arraycopy(tempLatents, 0, currentLatents, 0, currentLatents.size)
+                    }
+                } finally {
+                    sampleTensor.close()
+                    timestepTensor.close()
+                }
+
+                onStep?.invoke(stepIndex + 1, numSteps)
+            }
+        } finally {
+            hiddenTensor.close()
         }
 
         return currentLatents
@@ -266,58 +325,47 @@ object OnnxDiffusionEngine {
         val unetFile = File(modelDir, "unet.onnx")
         val vaeDecoderFile = File(modelDir, "vae_decoder.onnx")
 
-        val missing = listOf(textEncoderFile, unetFile, vaeDecoderFile).filter { !it.exists() }
-        if (missing.isNotEmpty()) {
-            throw IllegalStateException(
-                "Model '${params.modelId}' components not found in ${modelDir.absolutePath} (missing: ${missing.joinToString { it.name }}). Please download in Settings or sideload via ADB."
-            )
+        val requiredFiles = listOf(textEncoderFile, unetFile, vaeDecoderFile)
+        for (file in requiredFiles) {
+            if (!file.exists()) {
+                throw IllegalStateException("Model component '${file.name}' is invalid or missing in ${modelDir.absolutePath}")
+            }
         }
 
-        val areFilesEmpty = textEncoderFile.length() == 0L || unetFile.length() == 0L || vaeDecoderFile.length() == 0L
-        if (isTestMode || areFilesEmpty) {
+        if (!testSimulationEnabled) {
+            for (file in requiredFiles) {
+                if (file.length() == 0L) {
+                    throw IllegalStateException("Model component '${file.name}' is invalid or missing in ${modelDir.absolutePath}")
+                }
+            }
+        } else {
             return runTestSimulation(params, onStep)
         }
 
-        return try {
-            val env = OrtEnvironment.getEnvironment()
-            val promptTokens = tokenizer.tokenize(params.prompt)
-            val seed = params.seed ?: System.currentTimeMillis()
+        val env = OrtEnvironment.getEnvironment()
+        val promptTokens = tokenizer.tokenize(params.prompt)
+        val seed = params.seed ?: System.currentTimeMillis()
 
-            // 1. Text Encoder Session
-            val textEmbeddings = createSessionOptions().use { sessionOptions ->
-                env.createSession(textEncoderFile.absolutePath, sessionOptions).use { textEncoderSession ->
-                    encodePrompt(textEncoderSession, promptTokens, env)
-                }
-            }
+        // 1. Text Encoder Session
+        val textEmbeddings = createSession(env, textEncoderFile).use { textEncoderSession ->
+            encodePrompt(textEncoderSession, promptTokens, env)
+        }
 
-            if (isCancelled) throw CancellationException("Generation cancelled")
+        if (isCancelled) throw CancellationException("Generation cancelled")
 
-            // 2. Initial Latents
-            val initialLatents = GaussianNoise.generate(4 * 64 * 64, seed)
+        // 2. Initial Latents
+        val initialLatents = GaussianNoise.generate(4 * 64 * 64, seed)
 
-            // 3. UNet Session (1-4 steps SD-Turbo)
-            val denoisedLatents = createSessionOptions().use { sessionOptions ->
-                env.createSession(unetFile.absolutePath, sessionOptions).use { unetSession ->
-                    denoiseLoop(unetSession, initialLatents, textEmbeddings, params.steps, onStep, env)
-                }
-            }
+        // 3. UNet Session (1-4 steps SD-Turbo)
+        val denoisedLatents = createSession(env, unetFile).use { unetSession ->
+            denoiseLoop(unetSession, initialLatents, textEmbeddings, params.steps, onStep, env)
+        }
 
-            if (isCancelled) throw CancellationException("Generation cancelled")
+        if (isCancelled) throw CancellationException("Generation cancelled")
 
-            // 4. VAE Decoder Session
-            createSessionOptions().use { sessionOptions ->
-                env.createSession(vaeDecoderFile.absolutePath, sessionOptions).use { vaeSession ->
-                    decodeVae(vaeSession, denoisedLatents, 512, 512, env)
-                }
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Throwable) {
-            if (isTestMode || isRunningInTestEnvironment()) {
-                runTestSimulation(params, onStep)
-            } else {
-                throw e
-            }
+        // 4. VAE Decoder Session
+        return createSession(env, vaeDecoderFile).use { vaeSession ->
+            decodeVae(vaeSession, denoisedLatents, 512, 512, env)
         }
     }
 
@@ -334,13 +382,5 @@ object OnnxDiffusionEngine {
         val seed = params.seed ?: System.currentTimeMillis()
         val latents = GaussianNoise.generate(4 * 64 * 64, seed)
         return VaePostProcessor.latentsToRgbBytes(latents, 512, 512)
-    }
-
-    private fun isRunningInTestEnvironment(): Boolean {
-        return try {
-            Class.forName("org.junit.Test") != null
-        } catch (_: Throwable) {
-            false
-        }
     }
 }

@@ -196,32 +196,37 @@ class HistoryRepositoryTest {
     fun testPipelineManagerIntegrationWithHistoryRepository(): Unit = runBlocking {
         val testModelsDir = File(System.getProperty("java.io.tmpdir"), "test-models-${System.currentTimeMillis()}")
         testModelsDir.mkdirs()
+        com.example.sdnpu.TestModelFixtures.stageModel(testModelsDir, "dreamshaper_v8_base")
+        com.example.sdnpu.engine.OnnxDiffusionEngine.testSimulationEnabled = true
 
-        val pipeline = PipelineManager(
-            modelsDir = testModelsDir,
-            outputDir = testImagesDir,
-            historyRepository = repository
-        )
+        try {
+            val pipeline = PipelineManager(
+                modelsDir = testModelsDir,
+                outputDir = testImagesDir,
+                historyRepository = repository
+            )
 
-        val params = GenerationParams(
-            prompt = "a cute golden retriever puppy",
-            steps = 10,
-            upscaleMode = UpscaleMode.OFF
-        )
+            val params = GenerationParams(
+                prompt = "a cute golden retriever puppy",
+                steps = 10,
+                upscaleMode = UpscaleMode.OFF
+            )
 
-        val states = pipeline.runGeneration(params).toList()
-        val completed = states.filterIsInstance<PipelineState.Completed>()
-        assertEquals(1, completed.size)
+            val states = pipeline.runGeneration(params).toList()
+            val completed = states.filterIsInstance<PipelineState.Completed>()
+            assertEquals(1, completed.size)
 
-        // Verify that record was inserted into repository
-        val history = repository.historyList.value
-        assertEquals(1, history.size)
-        assertEquals("a cute golden retriever puppy", history[0].prompt)
-        assertEquals(512, history[0].width)
-        assertEquals(512, history[0].height)
-        assertTrue(File(history[0].imagePath).exists())
-
-        testModelsDir.deleteRecursively()
+            // Verify that record was inserted into repository
+            val history = repository.historyList.value
+            assertEquals(1, history.size)
+            assertEquals("a cute golden retriever puppy", history[0].prompt)
+            assertEquals(512, history[0].width)
+            assertEquals(512, history[0].height)
+            assertTrue(File(history[0].imagePath).exists())
+        } finally {
+            com.example.sdnpu.engine.OnnxDiffusionEngine.testSimulationEnabled = false
+            testModelsDir.deleteRecursively()
+        }
     }
 
     private fun writeMinimalPng(file: File, width: Int, height: Int) {

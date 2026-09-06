@@ -2,11 +2,23 @@ package com.example.sdnpu.engine
 
 import com.example.sdnpu.pipeline.GenerationParams
 import com.example.sdnpu.pipeline.SamplerType
+import org.junit.After
 import org.junit.Assert.*
+import org.junit.Before
 import org.junit.Test
 import java.io.File
 
 class SDEngineTest {
+    @Before
+    fun setUp() {
+        com.example.sdnpu.TestModelFixtures.stageModel(File(System.getProperty("java.io.tmpdir"), "test_models"), "dreamshaper_v8_base")
+        OnnxDiffusionEngine.testSimulationEnabled = true
+    }
+
+    @After
+    fun tearDown() {
+        OnnxDiffusionEngine.testSimulationEnabled = false
+    }
     @Test
     fun testGenerateReturnsCorrectByteSize() {
         val params = GenerationParams(
