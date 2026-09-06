@@ -65,11 +65,13 @@ class DeviceMonitor(private val context: Context? = null) {
     private val _isLowBattery = MutableStateFlow(false)
     val isLowBattery: StateFlow<Boolean> = _isLowBattery.asStateFlow()
 
+    private val appContext: Context? = context?.applicationContext ?: context
+
     private var batteryReceiver: BroadcastReceiver? = null
     private var thermalHelper: Any? = null
 
     init {
-        context?.let { ctx ->
+        appContext?.let { ctx ->
             initBatteryMonitoring(ctx)
             initThermalMonitoring(ctx)
         }
@@ -143,7 +145,7 @@ class DeviceMonitor(private val context: Context? = null) {
     fun unregister() {
         try {
             batteryReceiver?.let {
-                context?.unregisterReceiver(it)
+                appContext?.unregisterReceiver(it)
                 batteryReceiver = null
             }
         } catch (e: Throwable) {

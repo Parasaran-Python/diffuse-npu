@@ -22,8 +22,10 @@ import java.io.File
  */
 class GenerationNotificationManager(private val context: Context? = null) {
 
+    private val appContext: Context? = context?.applicationContext ?: context
+
     private val notificationManager: NotificationManager? by lazy {
-        context?.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+        appContext?.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
     }
 
     init {
@@ -31,7 +33,7 @@ class GenerationNotificationManager(private val context: Context? = null) {
     }
 
     private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && context != null) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && appContext != null) {
             try {
                 val channel = NotificationChannel(
                     CHANNEL_ID,
@@ -52,7 +54,10 @@ class GenerationNotificationManager(private val context: Context? = null) {
      * Checks if the app has permission to post notifications (required on Android 13+).
      */
     fun hasNotificationPermission(): Boolean {
-        val ctx = context ?: return false
+        val ctx = appContext ?: return false
+        val enabled = notificationManager?.areNotificationsEnabled() != false
+        if (!enabled) return false
+
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             ContextCompat.checkSelfPermission(
                 ctx,
@@ -63,11 +68,23 @@ class GenerationNotificationManager(private val context: Context? = null) {
         }
     }
 
+    private fun createContentIntent(ctx: Context): PendingIntent {
+        val intent = Intent(ctx, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
+        return PendingIntent.getActivity(ctx, 0, intent, flags)
+    }
+
     /**
      * Shows or updates an ongoing notification with generation progress.
      */
     fun notifyGenerationProgress(step: Int, total: Int, prompt: String = "") {
-        val ctx = context ?: return
+        val ctx = appContext ?: return
         if (!hasNotificationPermission()) return
 
         try {
@@ -89,6 +106,7 @@ class GenerationNotificationManager(private val context: Context? = null) {
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
+                .setContentIntent(createContentIntent(ctx))
                 .setProgress(maxProgress, currentProgress, false)
 
             notificationManager?.notify(NOTIFICATION_ID, builder.build())
@@ -101,22 +119,12 @@ class GenerationNotificationManager(private val context: Context? = null) {
      * Shows a completion notification with image details and optional preview thumbnail.
      */
     fun notifyGenerationCompleted(imagePath: String, prompt: String = "") {
-        val ctx = context ?: return
+        val ctx = appContext ?: return
         if (!hasNotificationPermission()) return
 
         try {
             val title = "Generation Complete"
             val text = if (prompt.isNotBlank()) prompt else "Image generated successfully"
-
-            val intent = Intent(ctx, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            }
-            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            } else {
-                PendingIntent.FLAG_UPDATE_CURRENT
-            }
-            val pendingIntent = PendingIntent.getActivity(ctx, 0, intent, flags)
 
             val builder = NotificationCompat.Builder(ctx, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_menu_gallery)
@@ -125,12 +133,12 @@ class GenerationNotificationManager(private val context: Context? = null) {
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .setOngoing(false)
                 .setAutoCancel(true)
-                .setContentIntent(pendingIntent)
+                .setContentIntent(createContentIntent(ctx))
 
             val file = File(imagePath)
             if (file.exists() && file.isFile) {
                 try {
-                    val bitmap = BitmapFactory.decodeFile(file.absolutePath)
+                    val bitmap = decodeDownsampledBitmap(file, maxDimension = 512)
                     if (bitmap != null) {
                         builder.setLargeIcon(bitmap)
                         builder.setStyle(
@@ -148,6 +156,18 @@ class GenerationNotificationManager(private val context: Context? = null) {
         } catch (e: Throwable) {
             Log.w(TAG, "Failed to display completion notification: ${e.message}")
         }
+    }
+
+    private fun decodeDownsampledBitmap(file: File, maxDimension: Int): android.graphics.Bitmap? {
+        val boundsOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, boundsOptions)
+        var sampleSize = 1
+        val maxSide = maxOf(boundsOptions.outWidth, boundsOptions.outHeight)
+        while (maxSide / (sampleSize * 2) >= maxDimension) {
+            sampleSize *= 2
+        }
+        val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+        return BitmapFactory.decodeFile(file.absolutePath, decodeOptions)
     }
 
     /**
