@@ -35,10 +35,12 @@ object OnnxDiffusionEngine {
     fun createSessionOptions(): OrtSession.SessionOptions {
         val options = OrtSession.SessionOptions()
         options.setIntraOpNumThreads(4)
+        options.addConfigEntry("session.load_model_format", "ONNX")
         try {
             val qnnOptions = mapOf(
                 "backend_type" to "HTP",
-                "htp_performance_mode" to "burst"
+                "htp_performance_mode" to "burst",
+                "htp_graph_finalization_optimization_mode" to "3"
             )
             options.addQnn(qnnOptions)
         } catch (_: Throwable) {
@@ -52,28 +54,31 @@ object OnnxDiffusionEngine {
     fun createSession(env: OrtEnvironment, modelFile: File): OrtSession {
         // Tier 1: Try Qualcomm QNN Execution Provider (HTP Backend)
         try {
-            val qnnOptions = OrtSession.SessionOptions().apply {
-                setIntraOpNumThreads(4)
-                addQnn(mapOf(
+            OrtSession.SessionOptions().use { qnnOptions ->
+                qnnOptions.setIntraOpNumThreads(4)
+                qnnOptions.addConfigEntry("session.load_model_format", "ONNX")
+                val qnnProviderOptions = mapOf(
                     "backend_type" to "HTP",
-                    "htp_performance_mode" to "burst"
-                ))
+                    "htp_performance_mode" to "burst",
+                    "htp_graph_finalization_optimization_mode" to "3"
+                )
+                qnnOptions.addQnn(qnnProviderOptions)
+                return env.createSession(modelFile.absolutePath, qnnOptions)
             }
-            return env.createSession(modelFile.absolutePath, qnnOptions)
         } catch (_: Throwable) {
             // Tier 2: Try Android NNAPI Execution Provider
             try {
-                val nnapiOptions = OrtSession.SessionOptions().apply {
-                    setIntraOpNumThreads(4)
-                    addNnapi()
+                OrtSession.SessionOptions().use { nnapiOptions ->
+                    nnapiOptions.setIntraOpNumThreads(4)
+                    nnapiOptions.addNnapi()
+                    return env.createSession(modelFile.absolutePath, nnapiOptions)
                 }
-                return env.createSession(modelFile.absolutePath, nnapiOptions)
             } catch (_: Throwable) {
                 // Tier 3: Fallback to CPU with multi-threading
-                val cpuOptions = OrtSession.SessionOptions().apply {
-                    setIntraOpNumThreads(4)
+                OrtSession.SessionOptions().use { cpuOptions ->
+                    cpuOptions.setIntraOpNumThreads(4)
+                    return env.createSession(modelFile.absolutePath, cpuOptions)
                 }
-                return env.createSession(modelFile.absolutePath, cpuOptions)
             }
         }
     }

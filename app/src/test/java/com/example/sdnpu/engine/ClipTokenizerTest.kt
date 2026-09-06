@@ -134,4 +134,31 @@ class ClipTokenizerTest {
         assertEquals(48894, ClipTokenizer.DEFAULT_MERGES.size)
         assertEquals(49408, ClipTokenizer.DEFAULT_VOCAB.size)
     }
+
+    @Test
+    fun testSingleDigitTokenization() {
+        val tokenizer = ClipTokenizer()
+        val tokens = tokenizer.tokenize("100")
+        assertEquals(77, tokens.size)
+        assertEquals(ClipTokenizer.BOS_TOKEN, tokens[0])
+        // "100" must be tokenized as three separate single-digit tokens: "1", "0", "0"
+        // "1</w>" -> 272, "0</w>" -> 271
+        assertEquals(272, tokens[1])
+        assertEquals(271, tokens[2])
+        assertEquals(271, tokens[3])
+        assertEquals(ClipTokenizer.EOS_TOKEN, tokens[4])
+        assertEquals(ClipTokenizer.PAD_TOKEN, tokens[5])
+    }
+
+    @Test
+    fun testUnicodeCharacterHandling() {
+        val tokenizer = ClipTokenizer()
+        val tokens = tokenizer.tokenize("café")
+        assertEquals(77, tokens.size)
+        assertEquals(ClipTokenizer.BOS_TOKEN, tokens[0])
+        // "café" is matched as a whole Unicode word \p{L}+ and encoded to "cafÃ©</w>" (token ID 15304)
+        assertEquals(15304, tokens[1])
+        assertEquals(ClipTokenizer.EOS_TOKEN, tokens[2])
+        assertEquals(ClipTokenizer.PAD_TOKEN, tokens[3])
+    }
 }

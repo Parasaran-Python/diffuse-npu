@@ -1,5 +1,6 @@
 package com.example.sdnpu.engine
 
+import android.util.Log
 import com.example.sdnpu.pipeline.GenerationParams
 import kotlinx.coroutines.CancellationException
 import java.io.File
@@ -33,7 +34,13 @@ object SDEngine {
         if (QnnNativeBridge.isLibraryLoaded()) {
             try {
                 nativeCancelSd()
-            } catch (_: Throwable) {}
+            } catch (e: Throwable) {
+                try {
+                    Log.w("SDEngine", "Failed to cancel native SD execution", e)
+                } catch (_: Throwable) {
+                    System.err.println("SDEngine: Failed to cancel native SD execution: ${e.message}")
+                }
+            }
         }
     }
 
