@@ -1,6 +1,8 @@
 package com.example.sdnpu.pipeline
 
 import android.graphics.Bitmap
+import com.example.sdnpu.data.GenerationEntity
+import com.example.sdnpu.data.HistoryRepository
 import com.example.sdnpu.engine.ESRGANEngine
 import com.example.sdnpu.engine.SDEngine
 import kotlinx.coroutines.Dispatchers
@@ -19,7 +21,8 @@ import java.util.zip.Deflater
 
 class PipelineManager(
     private val modelsDir: File = File(System.getProperty("java.io.tmpdir"), "models"),
-    private val outputDir: File = File(System.getProperty("java.io.tmpdir"), "generations")
+    private val outputDir: File = File(System.getProperty("java.io.tmpdir"), "generations"),
+    var historyRepository: HistoryRepository? = null
 ) {
     fun cancel() {
         SDEngine.cancel()
@@ -90,6 +93,24 @@ class PipelineManager(
                     }
 
                     val totalDurationMs = System.currentTimeMillis() - startTime
+                    historyRepository?.insert(
+                        GenerationEntity(
+                            prompt = batchParams.prompt,
+                            negativePrompt = batchParams.negativePrompt,
+                            modelName = batchParams.modelId,
+                            imagePath = imageFile.absolutePath,
+                            seed = batchSeed,
+                            steps = batchParams.steps,
+                            cfgScale = batchParams.cfgScale,
+                            sampler = batchParams.sampler.ordinal,
+                            upscaleMode = scale,
+                            timestamp = System.currentTimeMillis(),
+                            generationTimeMs = totalDurationMs,
+                            width = upscaledWidth,
+                            height = upscaledHeight,
+                            fileSizeBytes = imageFile.length()
+                        )
+                    )
                     send(PipelineState.Completed(imageFile, totalDurationMs))
                 } else {
                     val imageFile = File(outputDir, "sd_${System.currentTimeMillis()}_$batchIdx.png")
@@ -98,6 +119,24 @@ class PipelineManager(
                     }
 
                     val totalDurationMs = System.currentTimeMillis() - startTime
+                    historyRepository?.insert(
+                        GenerationEntity(
+                            prompt = batchParams.prompt,
+                            negativePrompt = batchParams.negativePrompt,
+                            modelName = batchParams.modelId,
+                            imagePath = imageFile.absolutePath,
+                            seed = batchSeed,
+                            steps = batchParams.steps,
+                            cfgScale = batchParams.cfgScale,
+                            sampler = batchParams.sampler.ordinal,
+                            upscaleMode = 0,
+                            timestamp = System.currentTimeMillis(),
+                            generationTimeMs = totalDurationMs,
+                            width = 512,
+                            height = 512,
+                            fileSizeBytes = imageFile.length()
+                        )
+                    )
                     send(PipelineState.Completed(imageFile, totalDurationMs))
                 }
             }
