@@ -232,6 +232,9 @@ class ModelManagerTest {
         assertFalse(modelManager.isRealESRGANAvailable(2))
 
         File(esrgan2xDir, "model.bin").writeText("dummy weights")
+        assertFalse(modelManager.isRealESRGANAvailable(2)) // missing .complete
+
+        File(esrgan2xDir, ".complete").createNewFile()
         assertTrue(modelManager.isRealESRGANAvailable(2))
         assertFalse(modelManager.isRealESRGANAvailable(4))
     }

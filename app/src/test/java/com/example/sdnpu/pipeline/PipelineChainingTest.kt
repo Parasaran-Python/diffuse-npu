@@ -137,6 +137,29 @@ class PipelineChainingTest {
         pipelineManager.cancel()
     }
 
+    @Test
+    fun testBatchGenerationWithUpscalingX2ProducesMultiple1024x1024Images() = runBlocking {
+        val params = GenerationParams(
+            prompt = "cyberpunk city skyline",
+            steps = 10,
+            batchCount = 2,
+            upscaleMode = UpscaleMode.X2
+        )
+
+        val states = pipelineManager.runGeneration(params).toList()
+        val completedStates = states.filterIsInstance<PipelineState.Completed>()
+        assertEquals(2, completedStates.size)
+
+        for (comp in completedStates) {
+            val file = File(comp.imagePath!!)
+            assertTrue(file.exists())
+            assertTrue(file.name.contains("_x2.png"))
+            val (width, height) = readPngDimensions(file)
+            assertEquals(1024, width)
+            assertEquals(1024, height)
+        }
+    }
+
     private fun readPngDimensions(file: File): Pair<Int, Int> {
         require(file.exists()) { "PNG file does not exist: ${file.absolutePath}" }
         DataInputStream(file.inputStream().buffered()).use { dis ->

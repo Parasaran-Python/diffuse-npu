@@ -212,37 +212,41 @@ Java_com_example_sdnpu_engine_ESRGANEngine_nativeUpscaleEsrgan(
     );
     env->ReleaseByteArrayElements(inRgba, inElems, JNI_ABORT);
 
-    int outW = inW * scale;
-    int outH = inH * scale;
-    size_t outSize = static_cast<size_t>(outW) * static_cast<size_t>(outH) * 4;
-    std::vector<uint8_t> outVec(outSize);
+    try {
+        int outW = inW * scale;
+        int outH = inH * scale;
+        size_t outSize = static_cast<size_t>(outW) * static_cast<size_t>(outH) * 4;
+        std::vector<uint8_t> outVec(outSize);
 
-    bool ok = EsrganPipeline::getInstance().upscale(
-        inVec.data(),
-        static_cast<int>(inW),
-        static_cast<int>(inH),
-        outVec.data(),
-        outW,
-        outH,
-        static_cast<int>(scale)
-    );
+        bool ok = EsrganPipeline::getInstance().upscale(
+            inVec.data(),
+            static_cast<int>(inW),
+            static_cast<int>(inH),
+            outVec.data(),
+            outW,
+            outH,
+            static_cast<int>(scale)
+        );
 
-    if (!ok) {
+        if (!ok) {
+            return nullptr;
+        }
+
+        jbyteArray result = env->NewByteArray(static_cast<jsize>(outSize));
+        if (!result) {
+            return nullptr;
+        }
+
+        env->SetByteArrayRegion(
+            result,
+            0,
+            static_cast<jsize>(outSize),
+            reinterpret_cast<const jbyte*>(outVec.data())
+        );
+        return result;
+    } catch (...) {
         return nullptr;
     }
-
-    jbyteArray result = env->NewByteArray(static_cast<jsize>(outSize));
-    if (!result) {
-        return nullptr;
-    }
-
-    env->SetByteArrayRegion(
-        result,
-        0,
-        static_cast<jsize>(outSize),
-        reinterpret_cast<const jbyte*>(outVec.data())
-    );
-    return result;
 }
 
 JNIEXPORT void JNICALL

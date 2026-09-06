@@ -174,7 +174,7 @@ class ModelManager(
     fun isRealESRGANAvailable(scale: Int): Boolean {
         val modelId = "realesrgan_x${scale}plus"
         val modelDir = File(baseStorageDir, modelId)
-        return modelDir.exists() && File(modelDir, "model.bin").exists()
+        return modelDir.exists() && File(modelDir, "model.bin").exists() && File(modelDir, ".complete").exists()
     }
 
     fun loadLocalManifest(modelId: String): ModelManifest? {
