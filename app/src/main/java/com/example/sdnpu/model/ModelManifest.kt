@@ -184,3 +184,37 @@ object ModelVariants {
 
     fun isSdModel(id: String): Boolean = !id.startsWith("realesrgan")
 }
+
+data class ModelDownloadPreset(
+    val id: String,
+    val name: String,
+    val defaultUrl: String,
+    val description: String,
+    val isDefault: Boolean = false
+)
+
+object ModelDownloadPresets {
+    val PRESETS = listOf(
+        ModelDownloadPreset(
+            id = "sdturbo",
+            name = "SD-Turbo (ONNX / LCM)",
+            defaultUrl = "https://huggingface.co/Heliosoph/sd-turbo-onnx/resolve/main/",
+            description = "1-4 step inference with ONNX Runtime Mobile & Qualcomm NPU",
+            isDefault = true
+        ),
+        ModelDownloadPreset(
+            id = "dreamshaper_v8_base",
+            name = "DreamShaper v8 (General)",
+            defaultUrl = "http://192.168.1.100:8080/models/dreamshaper_v8_base/",
+            description = "Standard SD 1.5 weights (Local Wi-Fi / Custom server)"
+        ),
+        ModelDownloadPreset(
+            id = "custom",
+            name = "Custom URL",
+            defaultUrl = "",
+            description = "Download from custom HTTP/HTTPS server or Hugging Face mirror"
+        )
+    )
+
+    fun getPresets(): List<ModelDownloadPreset> = PRESETS
+}

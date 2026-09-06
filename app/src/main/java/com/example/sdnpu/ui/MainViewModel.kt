@@ -13,6 +13,7 @@ import com.example.sdnpu.engine.BackendType
 import com.example.sdnpu.engine.QnnNativeBridge
 import com.example.sdnpu.model.DownloadStatus
 import com.example.sdnpu.model.ModelManager
+import com.example.sdnpu.model.ModelManifest
 import com.example.sdnpu.pipeline.GenerationParams
 import com.example.sdnpu.pipeline.PipelineManager
 import com.example.sdnpu.pipeline.PipelineState
@@ -307,16 +308,31 @@ class MainViewModel(
         _pipelineState.value = PipelineState.Idle
     }
 
-    fun downloadModelFromUrl(url: String) {
+    fun downloadModelFromUrl(url: String, modelId: String? = null) {
         if (downloadJob?.isActive == true) return
 
         downloadJob = viewModelScope.launch {
             val manifestRes = modelManager.fetchManifest(url)
-            if (manifestRes.isFailure) {
-                _downloadStatus.value = DownloadStatus.Failed("Cannot fetch manifest: ${manifestRes.exceptionOrNull()?.message}")
-                return@launch
+            val manifest = if (manifestRes.isSuccess) {
+                manifestRes.getOrThrow()
+            } else {
+                val resolvedId = modelId ?: when {
+                    url.contains("sd-turbo", ignoreCase = true) || url.contains("sdturbo", ignoreCase = true) -> "sdturbo"
+                    url.contains("anime", ignoreCase = true) -> "dreamshaper_v8_anime"
+                    url.contains("realistic", ignoreCase = true) -> "dreamshaper_v8_realistic"
+                    else -> "dreamshaper_v8_base"
+                }
+                when (resolvedId) {
+                    "sdturbo" -> ModelManifest.sdturbo()
+                    "dreamshaper_v8_base" -> ModelManifest.dreamshaper_v8_base()
+                    "dreamshaper_v8_anime" -> ModelManifest.dreamshaper_v8_anime()
+                    "dreamshaper_v8_realistic" -> ModelManifest.dreamshaper_v8_realistic()
+                    else -> {
+                        _downloadStatus.value = DownloadStatus.Failed("Cannot fetch manifest: ${manifestRes.exceptionOrNull()?.message}")
+                        return@launch
+                    }
+                }
             }
-            val manifest = manifestRes.getOrThrow()
             modelManager.downloadModel(manifest, url).collect { status ->
                 _downloadStatus.value = status
                 if (status is DownloadStatus.Completed) {

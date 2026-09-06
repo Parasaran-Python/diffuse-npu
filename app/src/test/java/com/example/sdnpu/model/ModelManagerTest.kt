@@ -271,4 +271,53 @@ class ModelManagerTest {
         assertEquals("sdturbo", manifest?.modelId)
         assertEquals(3, manifest?.components?.size)
     }
+
+    @Test
+    fun testDownloadModelCandidateUrlFallback() = runBlocking {
+        val testContent = "huggingface optimum onnx weights"
+        val manifest = ModelManifest(
+            modelId = "hf_model",
+            version = "1.0",
+            components = listOf(
+                ModelComponent("text_encoder", "text_encoder.onnx", "")
+            ),
+            qnnSdkVersion = "ort-1.20",
+            targetHtp = "v73"
+        )
+
+        // First candidate: /text_encoder.onnx -> 404
+        server.enqueue(MockResponse().setResponseCode(404))
+        // Second candidate: /text_encoder/model.onnx -> 200
+        server.enqueue(MockResponse().setResponseCode(200).setBody(testContent))
+
+        val baseUrl = server.url("/").toString()
+        val statuses = modelManager.downloadModel(manifest, baseUrl).toList()
+
+        assertTrue(statuses.any { it is DownloadStatus.Completed })
+        val downloadedFile = File(File(modelsDir, "hf_model"), "text_encoder.onnx")
+        assertTrue(downloadedFile.exists())
+        assertEquals(testContent, downloadedFile.readText())
+    }
+
+    @Test
+    fun testDownloadModelSkipsChecksumWhenShaNotProvided() = runBlocking {
+        val testContent = "sample data without strict sha256"
+        val manifest = ModelManifest(
+            modelId = "loose_sha_model",
+            version = "1.0",
+            components = listOf(
+                ModelComponent("unet", "unet.bin", ".unet") // prefix dummy hash
+            ),
+            qnnSdkVersion = "2.49.0",
+            targetHtp = "v73"
+        )
+
+        server.enqueue(MockResponse().setResponseCode(200).setBody(testContent))
+        val baseUrl = server.url("/").toString()
+        val statuses = modelManager.downloadModel(manifest, baseUrl).toList()
+
+        assertTrue(statuses.any { it is DownloadStatus.Completed })
+        val targetFile = File(File(modelsDir, "loose_sha_model"), "unet.bin")
+        assertTrue(targetFile.exists())
+    }
 }

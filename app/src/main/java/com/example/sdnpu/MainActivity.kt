@@ -34,6 +34,7 @@ class MainActivity : ComponentActivity() {
             SdnpuTheme(darkTheme = isDark) {
                 var currentTab by rememberSaveable { mutableStateOf(NavTab.GENERATE) }
                 var showDownloadDialog by rememberSaveable { mutableStateOf(false) }
+                var targetDownloadModelId by rememberSaveable { mutableStateOf("sdturbo") }
 
                 val params by viewModel.params.collectAsState()
                 val pipelineState by viewModel.pipelineState.collectAsState()
@@ -83,7 +84,11 @@ class MainActivity : ComponentActivity() {
                                 thermalWarningEnabled = appSettings.thermalWarningEnabled,
                                 onParamsChange = { viewModel.updateParams(it) },
                                 onGenerate = { viewModel.startGeneration() },
-                                onCancel = { viewModel.cancelGeneration() }
+                                onCancel = { viewModel.cancelGeneration() },
+                                onOpenDownloadDialog = { modelId ->
+                                    targetDownloadModelId = modelId
+                                    showDownloadDialog = true
+                                }
                             )
                             NavTab.GALLERY -> GalleryScreen(
                                 historyList = filteredHistory,
@@ -105,7 +110,10 @@ class MainActivity : ComponentActivity() {
                                 appSettings = appSettings,
                                 backendStatus = backendStatus,
                                 localModels = localModels,
-                                onOpenDownloadDialog = { showDownloadDialog = true },
+                                onOpenDownloadDialog = {
+                                    targetDownloadModelId = "sdturbo"
+                                    showDownloadDialog = true
+                                },
                                 onUpdateSteps = { viewModel.updateDefaultSteps(it) },
                                 onUpdateCfgScale = { viewModel.updateDefaultCfgScale(it) },
                                 onUpdateSampler = { viewModel.updateDefaultSampler(it) },
@@ -123,8 +131,9 @@ class MainActivity : ComponentActivity() {
                         if (showDownloadDialog) {
                             ModelDownloadDialog(
                                 status = downloadStatus,
+                                initialModelId = targetDownloadModelId,
                                 onDismiss = { showDownloadDialog = false },
-                                onStartDownload = { url -> viewModel.downloadModelFromUrl(url) },
+                                onStartDownload = { url, modelId -> viewModel.downloadModelFromUrl(url, modelId) },
                                 onCancelDownload = { viewModel.cancelDownload() }
                             )
                         }
