@@ -189,5 +189,14 @@ class DeviceMonitor(private val context: Context? = null) {
         fun isBatteryCriticallyLow(level: Int, isCharging: Boolean): Boolean {
             return (level in 0..15) && !isCharging
         }
+
+        @Volatile
+        private var INSTANCE: DeviceMonitor? = null
+
+        fun getInstance(context: Context): DeviceMonitor {
+            return INSTANCE ?: synchronized(this) {
+                INSTANCE ?: DeviceMonitor(context.applicationContext).also { INSTANCE = it }
+            }
+        }
     }
 }

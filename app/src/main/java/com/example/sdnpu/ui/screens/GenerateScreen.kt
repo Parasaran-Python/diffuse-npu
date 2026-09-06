@@ -8,7 +8,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BatteryAlert
 import androidx.compose.material.icons.filled.Casino
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -17,10 +20,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import com.example.sdnpu.model.ModelVariants
 import com.example.sdnpu.pipeline.GenerationParams
 import com.example.sdnpu.pipeline.PipelineState
 import com.example.sdnpu.pipeline.SamplerType
 import com.example.sdnpu.pipeline.UpscaleMode
+import com.example.sdnpu.system.ThermalStatus
+import java.io.File
 import kotlin.random.Random
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -29,6 +35,11 @@ fun GenerateScreen(
     params: GenerationParams,
     pipelineState: PipelineState,
     localModels: List<String>,
+    thermalStatus: ThermalStatus = ThermalStatus.NONE,
+    batteryLevel: Int = 100,
+    isCharging: Boolean = true,
+    isLowBattery: Boolean = false,
+    thermalWarningEnabled: Boolean = true,
     onParamsChange: (GenerationParams) -> Unit,
     onGenerate: () -> Unit,
     onCancel: () -> Unit = {}
@@ -38,10 +49,7 @@ fun GenerateScreen(
     var samplerExpanded by remember { mutableStateOf(false) }
     val scrollState = rememberScrollState()
 
-    val availableModels = remember(localModels) {
-        val sdModels = localModels.filter { !it.startsWith("realesrgan") }
-        if (sdModels.isEmpty()) listOf("dreamshaper_v8") else sdModels
-    }
+    val sdVariants = remember { ModelVariants.getSdVariants() }
 
     val isProcessing = pipelineState is PipelineState.LoadingModel ||
             pipelineState is PipelineState.Generating ||
@@ -55,6 +63,60 @@ fun GenerateScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Text("Stable Diffusion on NPU", style = MaterialTheme.typography.titleLarge)
+
+        // Thermal / Battery Alert Banner
+        if (thermalWarningEnabled && (thermalStatus.isThrottlingSevere() || (isLowBattery && !isCharging))) {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    if (thermalStatus.isThrottlingSevere()) {
+                        Icon(
+                            Icons.Default.Warning,
+                            contentDescription = "Thermal Warning",
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                        Column {
+                            Text(
+                                "Thermal Throttling Alert (${thermalStatus.name})",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                            Text(
+                                "Device is warm. NPU generation speed may temporarily decrease.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                    } else if (isLowBattery && !isCharging) {
+                        Icon(
+                            Icons.Default.BatteryAlert,
+                            contentDescription = "Low Battery",
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                        Column {
+                            Text(
+                                "Low Battery Warning ($batteryLevel%)",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                            Text(
+                                "Connect phone to charger to avoid device shutdown during heavy inference.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                    }
+                }
+            }
+        }
 
         OutlinedTextField(
             value = params.prompt,
@@ -79,16 +141,20 @@ fun GenerateScreen(
             )
         }
 
+        // Model Variant Selector Dropdown
         ExposedDropdownMenuBox(
             expanded = modelExpanded,
             onExpandedChange = { modelExpanded = !modelExpanded },
             modifier = Modifier.fillMaxWidth()
         ) {
+            val selectedVariant = sdVariants.find { it.id == params.modelId }
+            val displayName = selectedVariant?.name ?: params.modelId
+
             OutlinedTextField(
-                value = params.modelId,
+                value = displayName,
                 onValueChange = {},
                 readOnly = true,
-                label = { Text("Model") },
+                label = { Text("Model Variant") },
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelExpanded) },
                 modifier = Modifier
                     .menuAnchor(MenuAnchorType.PrimaryNotEditable)
@@ -98,11 +164,30 @@ fun GenerateScreen(
                 expanded = modelExpanded,
                 onDismissRequest = { modelExpanded = false }
             ) {
-                availableModels.forEach { model ->
+                sdVariants.forEach { variant ->
+                    val isDownloaded = localModels.contains(variant.id)
                     DropdownMenuItem(
-                        text = { Text(model) },
+                        text = {
+                            Column {
+                                Text(variant.name, style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    variant.description,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        },
+                        trailingIcon = {
+                            SuggestionChip(
+                                onClick = {},
+                                label = { Text(if (isDownloaded) "Ready" else "Online") },
+                                colors = SuggestionChipDefaults.suggestionChipColors(
+                                    containerColor = if (isDownloaded) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                                )
+                            )
+                        },
                         onClick = {
-                            onParamsChange(params.copy(modelId = model))
+                            onParamsChange(params.copy(modelId = variant.id))
                             modelExpanded = false
                         }
                     )
@@ -110,6 +195,7 @@ fun GenerateScreen(
             }
         }
 
+        // Sampler Dropdown
         ExposedDropdownMenuBox(
             expanded = samplerExpanded,
             onExpandedChange = { samplerExpanded = !samplerExpanded },
@@ -156,6 +242,24 @@ fun GenerateScreen(
             valueRange = 1.0f..20.0f
         )
 
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = params.seed?.toString() ?: "",
+                onValueChange = { onParamsChange(params.copy(seed = it.toLongOrNull())) },
+                label = { Text("Seed (empty = random)") },
+                modifier = Modifier.weight(1f)
+            )
+            IconButton(
+                onClick = { onParamsChange(params.copy(seed = Random.nextLong(0, Long.MAX_VALUE))) }
+            ) {
+                Icon(Icons.Default.Casino, contentDescription = "Random Seed")
+            }
+        }
+
         Text("Batch Count: ${params.batchCount}")
         Slider(
             value = params.batchCount.toFloat(),
@@ -164,132 +268,181 @@ fun GenerateScreen(
             steps = 2
         )
 
+        // RealESRGAN Super-Resolution
+        Text("Super-Resolution (RealESRGAN):", style = MaterialTheme.typography.titleMedium)
         Row(
-            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            OutlinedTextField(
-                value = params.seed?.toString() ?: "",
-                onValueChange = {
-                    val clean = it.filter { ch -> ch.isDigit() }
-                    val s = clean.toLongOrNull()
-                    onParamsChange(params.copy(seed = s))
-                },
-                label = { Text("Seed (empty = random)") },
-                modifier = Modifier.weight(1f)
-            )
-            IconButton(onClick = {
-                onParamsChange(params.copy(seed = Random.nextLong(0, 1000000)))
-            }) {
-                Icon(Icons.Default.Casino, contentDescription = "Randomize Seed")
-            }
-        }
-
-        Text("RealESRGAN Upscale:")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             UpscaleMode.entries.forEach { mode ->
                 FilterChip(
                     selected = params.upscaleMode == mode,
                     onClick = { onParamsChange(params.copy(upscaleMode = mode)) },
-                    label = { Text(mode.displayName) }
+                    label = { Text(mode.displayName) },
+                    modifier = Modifier.weight(1f)
                 )
             }
         }
 
-        Button(
-            onClick = onGenerate,
-            enabled = !isProcessing,
-            modifier = Modifier.fillMaxWidth().height(52.dp)
-        ) {
-            when (pipelineState) {
-                is PipelineState.LoadingModel -> {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Loading model ${pipelineState.modelId}...")
-                }
-                is PipelineState.Generating -> {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Generating (${pipelineState.step}/${pipelineState.totalSteps})...")
-                }
-                is PipelineState.Upscaling -> {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Upscaling ${pipelineState.scale}x with RealESRGAN... ${(pipelineState.progress * 100).toInt()}%")
-                }
-                else -> Text("Generate Image")
-            }
-        }
-
-        if (isProcessing) {
-            OutlinedButton(
-                onClick = onCancel,
-                modifier = Modifier.fillMaxWidth().height(48.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-            ) {
-                Text("Cancel Generation")
-            }
-        }
-
-        when (pipelineState) {
-            is PipelineState.Upscaling -> {
+        // Live Upscaling Progress Indicator Card
+        AnimatedVisibility(visible = pipelineState is PipelineState.Upscaling) {
+            if (pipelineState is PipelineState.Upscaling) {
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
                 ) {
                     Column(
                         modifier = Modifier.padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            text = "Upscaling ${pipelineState.scale}x with RealESRGAN... ${(pipelineState.progress * 100).toInt()}%",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
-                        LinearProgressIndicator(
-                            progress = { pipelineState.progress },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                }
-            }
-            is PipelineState.Completed -> {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        val bitmap = remember(pipelineState.imagePath) {
-                            pipelineState.imagePath?.let { path ->
-                                BitmapFactory.decodeFile(path)?.asImageBitmap()
-                            }
-                        }
-
-                        val badgeText = when {
-                            pipelineState.imagePath?.contains("_x4") == true || (bitmap != null && bitmap.width >= 2048) -> "2048x2048 (4x ESRGAN)"
-                            pipelineState.imagePath?.contains("_x2") == true || (bitmap != null && bitmap.width >= 1024) -> "1024x1024 (2x ESRGAN)"
-                            bitmap != null -> "${bitmap.width}x${bitmap.height}"
-                            else -> "512x512"
-                        }
-
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "Success! Time: ${pipelineState.executionTimeMs} ms",
-                                style = MaterialTheme.typography.bodyMedium
+                                "RealESRGAN ${pipelineState.scale}x Upscaling...",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
                             )
-                            SuggestionChip(
-                                onClick = {},
-                                label = { Text(badgeText) }
+                            Text(
+                                "${pipelineState.progressPercent}%",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
                             )
                         }
 
+                        LinearProgressIndicator(
+                            progress = { pipelineState.progress },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Text(
+                            "Output resolution: ${if (pipelineState.scale == 4) "2048x2048" else "1024x1024"}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+
+                        OutlinedButton(
+                            onClick = onCancel,
+                            modifier = Modifier.align(Alignment.End),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "Cancel")
+                            Spacer(Modifier.width(4.dp))
+                            Text("Cancel Upscaling")
+                        }
+                    }
+                }
+            }
+        }
+
+        // Live Step Progress Indicator Card
+        AnimatedVisibility(visible = pipelineState is PipelineState.Generating) {
+            if (pipelineState is PipelineState.Generating) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "Sampling Diffusion Latents...",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Text(
+                                "Step ${pipelineState.step}/${pipelineState.totalSteps}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+
+                        val progressVal = if (pipelineState.totalSteps > 0) {
+                            pipelineState.step.toFloat() / pipelineState.totalSteps.toFloat()
+                        } else 0f
+
+                        LinearProgressIndicator(
+                            progress = { progressVal },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Text(
+                            pipelineState.message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+            }
+        }
+
+        // Generate and Cancel buttons
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Button(
+                onClick = onGenerate,
+                enabled = !isProcessing && params.prompt.isNotBlank(),
+                modifier = Modifier.weight(1f)
+            ) {
+                if (isProcessing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        when (pipelineState) {
+                            is PipelineState.LoadingModel -> "Loading Model..."
+                            is PipelineState.Generating -> "Sampling ${pipelineState.step}/${pipelineState.totalSteps}..."
+                            is PipelineState.Upscaling -> "Upscaling ${pipelineState.progressPercent}%..."
+                            else -> "Generating..."
+                        }
+                    )
+                } else {
+                    Text("Generate Image")
+                }
+            }
+
+            if (isProcessing) {
+                OutlinedButton(
+                    onClick = onCancel,
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Cancel")
+                }
+            }
+        }
+
+        if (pipelineState is PipelineState.Completed) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Generation Complete in ${pipelineState.executionTimeMs} ms!",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    pipelineState.imagePath?.let { path ->
+                        val file = File(path)
+                        val bitmap = remember(path) {
+                            BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap()
+                        }
                         if (bitmap != null) {
                             Box(modifier = Modifier.fillMaxWidth()) {
                                 Image(
@@ -301,31 +454,55 @@ fun GenerateScreen(
                                         .clip(RoundedCornerShape(8.dp)),
                                     contentScale = ContentScale.Fit
                                 )
-                                SuggestionChip(
-                                    onClick = {},
-                                    label = { Text(badgeText, style = MaterialTheme.typography.labelSmall) },
+                                // Resolution and upscale badges
+                                Row(
                                     modifier = Modifier
-                                        .align(Alignment.TopEnd)
+                                        .align(Alignment.BottomEnd)
                                         .padding(8.dp),
-                                    colors = SuggestionChipDefaults.suggestionChipColors(
-                                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    val resText = "${bitmap.width}x${bitmap.height}"
+                                    AssistChip(
+                                        onClick = {},
+                                        label = { Text(resText, style = MaterialTheme.typography.labelSmall) },
+                                        colors = AssistChipDefaults.assistChipColors(
+                                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
+                                        )
                                     )
-                                )
+                                    if (file.name.contains("_x2") || file.name.contains("_x4")) {
+                                        val upscaleText = if (file.name.contains("_x4")) "4x ESRGAN" else "2x ESRGAN"
+                                        AssistChip(
+                                            onClick = {},
+                                            label = { Text(upscaleText, style = MaterialTheme.typography.labelSmall) },
+                                            colors = AssistChipDefaults.assistChipColors(
+                                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f)
+                                            )
+                                        )
+                                    }
+                                }
                             }
                         }
+                        Text(
+                            "Saved to: ${file.name}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
-            is PipelineState.Error -> {
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
-                    Text(
-                        text = "Error: ${pipelineState.error}",
-                        modifier = Modifier.padding(12.dp),
-                        color = MaterialTheme.colorScheme.onErrorContainer
-                    )
-                }
+        }
+
+        if (pipelineState is PipelineState.Error) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = "Error: ${pipelineState.error}",
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.padding(14.dp)
+                )
             }
-            else -> {}
         }
     }
 }

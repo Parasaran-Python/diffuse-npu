@@ -24,7 +24,14 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            SdnpuTheme {
+            val appSettings by viewModel.appSettings.collectAsState()
+            val isDark = when (appSettings.darkThemeMode.uppercase()) {
+                "LIGHT" -> false
+                "DARK" -> true
+                else -> androidx.compose.foundation.isSystemInDarkTheme()
+            }
+
+            SdnpuTheme(darkTheme = isDark) {
                 var currentTab by rememberSaveable { mutableStateOf(NavTab.GENERATE) }
                 var showDownloadDialog by rememberSaveable { mutableStateOf(false) }
 
@@ -33,6 +40,16 @@ class MainActivity : ComponentActivity() {
                 val backendStatus by viewModel.backendStatus.collectAsState()
                 val localModels by viewModel.localModels.collectAsState()
                 val downloadStatus by viewModel.downloadStatus.collectAsState()
+
+                val filteredHistory by viewModel.filteredHistory.collectAsState()
+                val historyQuery by viewModel.historyQuery.collectAsState()
+                val selectedHistoryIds by viewModel.selectedHistoryIds.collectAsState()
+                val isSelectionMode by viewModel.isSelectionMode.collectAsState()
+
+                val thermalStatus by viewModel.thermalStatus.collectAsState()
+                val batteryLevel by viewModel.batteryLevel.collectAsState()
+                val isCharging by viewModel.isCharging.collectAsState()
+                val isLowBattery by viewModel.isLowBattery.collectAsState()
 
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
@@ -59,15 +76,47 @@ class MainActivity : ComponentActivity() {
                                 params = params,
                                 pipelineState = pipelineState,
                                 localModels = localModels,
+                                thermalStatus = thermalStatus,
+                                batteryLevel = batteryLevel,
+                                isCharging = isCharging,
+                                isLowBattery = isLowBattery,
+                                thermalWarningEnabled = appSettings.thermalWarningEnabled,
                                 onParamsChange = { viewModel.updateParams(it) },
                                 onGenerate = { viewModel.startGeneration() },
                                 onCancel = { viewModel.cancelGeneration() }
                             )
-                            NavTab.GALLERY -> GalleryScreen()
+                            NavTab.GALLERY -> GalleryScreen(
+                                historyList = filteredHistory,
+                                searchQuery = historyQuery,
+                                selectedIds = selectedHistoryIds,
+                                isSelectionMode = isSelectionMode,
+                                onQueryChange = { viewModel.setHistoryQuery(it) },
+                                onToggleSelection = { viewModel.toggleHistorySelection(it) },
+                                onSelectAll = { viewModel.selectAllHistory() },
+                                onClearSelection = { viewModel.clearHistorySelection() },
+                                onDeleteSelected = { viewModel.deleteSelectedHistory(deleteFiles = true) },
+                                onDeleteSingle = { viewModel.deleteHistoryItem(it, deleteFile = true) },
+                                onPopulateParams = {
+                                    viewModel.populateParamsFromHistory(it)
+                                    currentTab = NavTab.GENERATE
+                                }
+                            )
                             NavTab.SETTINGS -> SettingsScreen(
+                                appSettings = appSettings,
                                 backendStatus = backendStatus,
                                 localModels = localModels,
-                                onOpenDownloadDialog = { showDownloadDialog = true }
+                                onOpenDownloadDialog = { showDownloadDialog = true },
+                                onUpdateSteps = { viewModel.updateDefaultSteps(it) },
+                                onUpdateCfgScale = { viewModel.updateDefaultCfgScale(it) },
+                                onUpdateSampler = { viewModel.updateDefaultSampler(it) },
+                                onUpdateBatchCount = { viewModel.updateDefaultBatchCount(it) },
+                                onUpdateUpscaleMode = { viewModel.updateDefaultUpscaleMode(it) },
+                                onUpdateBackend = { viewModel.updateBackendPreference(it) },
+                                onUpdateThermalWarning = { viewModel.updateThermalWarningEnabled(it) },
+                                onUpdateHighPerformanceMode = { viewModel.updateHighPerformanceMode(it) },
+                                onUpdateDarkTheme = { viewModel.updateDarkThemeMode(it) },
+                                onDeleteModel = { viewModel.deleteLocalModel(it) },
+                                onClearCache = { viewModel.clearGenerationCache() }
                             )
                         }
 

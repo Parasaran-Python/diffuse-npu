@@ -1,58 +1,145 @@
 package com.example.sdnpu.ui.screens
 
+import android.content.Context
+import android.content.Intent
 import android.graphics.BitmapFactory
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.core.content.FileProvider
+import com.example.sdnpu.data.GenerationEntity
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun GalleryScreen(
-    generationsDir: File = File(LocalContext.current.filesDir, "generations")
+    historyList: List<GenerationEntity>,
+    searchQuery: String = "",
+    selectedIds: Set<Long> = emptySet(),
+    isSelectionMode: Boolean = false,
+    onQueryChange: (String) -> Unit = {},
+    onToggleSelection: (Long) -> Unit = {},
+    onSelectAll: () -> Unit = {},
+    onClearSelection: () -> Unit = {},
+    onDeleteSelected: () -> Unit = {},
+    onDeleteSingle: (Long) -> Unit = {},
+    onPopulateParams: (GenerationEntity) -> Unit = {}
 ) {
-    var imageFiles by remember {
-        mutableStateOf(
-            generationsDir.listFiles { file ->
-                file.isFile && (file.extension.equals("png", ignoreCase = true) ||
-                        file.extension.equals("jpg", ignoreCase = true))
-            }?.sortedByDescending { it.lastModified() } ?: emptyList()
-        )
-    }
-
-    var selectedImage by remember { mutableStateOf<File?>(null) }
+    val context = LocalContext.current
+    var inspectingRecord by remember { mutableStateOf<GenerationEntity?>(null) }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        Text(
-            text = "Generated Images (${imageFiles.size})",
-            style = MaterialTheme.typography.titleLarge
-        )
+        // Top Bar: Search or Selection Mode
+        if (isSelectionMode) {
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = onClearSelection) {
+                            Icon(Icons.Default.Close, contentDescription = "Cancel Selection")
+                        }
+                        Text(
+                            text = "${selectedIds.size} selected",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Row {
+                        IconButton(onClick = onSelectAll) {
+                            Icon(Icons.Default.SelectAll, contentDescription = "Select All")
+                        }
+                        IconButton(onClick = { showDeleteConfirmDialog = true }) {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = "Delete Selected",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                }
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Gallery (${historyList.size})",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            // Search Bar
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = onQueryChange,
+                placeholder = { Text("Search by prompt...") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { onQueryChange("") }) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear search")
+                        }
+                    }
+                },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
         Spacer(Modifier.height(12.dp))
 
-        if (imageFiles.isEmpty()) {
+        if (historyList.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -61,13 +148,13 @@ fun GalleryScreen(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        "No images generated yet",
+                        if (searchQuery.isNotEmpty()) "No generations matching \"$searchQuery\"" else "No images generated yet",
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "Run a prompt from Generate tab to see your creations here!",
+                        "Run a prompt from the Generate tab to see your creations here!",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.outline
                     )
@@ -82,27 +169,44 @@ fun GalleryScreen(
                     .fillMaxSize()
                     .weight(1f)
             ) {
-                items(imageFiles, key = { it.absolutePath }) { file ->
-                    GalleryImageCard(
-                        file = file,
-                        onClick = { selectedImage = file }
+                items(historyList, key = { it.id }) { record ->
+                    val isSelected = record.id in selectedIds
+
+                    GalleryItemCard(
+                        record = record,
+                        isSelected = isSelected,
+                        isSelectionMode = isSelectionMode,
+                        onClick = {
+                            if (isSelectionMode) {
+                                onToggleSelection(record.id)
+                            } else {
+                                inspectingRecord = record
+                            }
+                        },
+                        onLongClick = {
+                            onToggleSelection(record.id)
+                        }
                     )
                 }
             }
         }
     }
 
-    selectedImage?.let { file ->
-        Dialog(onDismissRequest = { selectedImage = null }) {
+    // Full-screen / Dialog Inspection View
+    inspectingRecord?.let { record ->
+        Dialog(onDismissRequest = { inspectingRecord = null }) {
             Card(
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(8.dp)
+                    .padding(4.dp)
             ) {
+                val scrollState = rememberScrollState()
                 Column(
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .verticalScroll(scrollState),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Row(
@@ -111,25 +215,30 @@ fun GalleryScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = file.name,
+                            text = File(record.imagePath).name,
                             style = MaterialTheme.typography.titleSmall,
-                            maxLines = 1
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
                         )
-                        IconButton(onClick = { selectedImage = null }) {
+                        IconButton(onClick = { inspectingRecord = null }) {
                             Icon(Icons.Default.Close, contentDescription = "Close")
                         }
                     }
 
                     Spacer(Modifier.height(8.dp))
 
-                    val bitmap = remember(file.absolutePath) {
-                        BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap()
+                    val file = File(record.imagePath)
+                    val bitmap = remember(record.imagePath) {
+                        if (file.exists()) {
+                            BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap()
+                        } else null
                     }
 
                     if (bitmap != null) {
                         Image(
                             bitmap = bitmap,
-                            contentDescription = file.name,
+                            contentDescription = record.prompt,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .aspectRatio(1f)
@@ -137,154 +246,266 @@ fun GalleryScreen(
                             contentScale = ContentScale.Fit
                         )
                     } else {
-                        Text("Could not load image", color = MaterialTheme.colorScheme.error)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(1f)
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("Image file unavailable", color = MaterialTheme.colorScheme.error)
+                        }
                     }
 
                     Spacer(Modifier.height(12.dp))
 
-                    val resolution = when {
-                        bitmap != null -> "${bitmap.width}x${bitmap.height}"
-                        file.name.contains("_x4") -> "2048x2048"
-                        file.name.contains("_x2") -> "1024x1024"
-                        else -> "512x512"
+                    // Badges
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        AssistChip(
+                            onClick = {},
+                            label = { Text("${record.width}x${record.height}") }
+                        )
+                        if (record.upscaleMode > 0) {
+                            AssistChip(
+                                onClick = {},
+                                label = { Text("${record.upscaleMode}x ESRGAN") },
+                                colors = AssistChipDefaults.assistChipColors(
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                                )
+                            )
+                        }
+                        if (record.generationTimeMs > 0) {
+                            AssistChip(
+                                onClick = {},
+                                label = { Text("${record.generationTimeMs} ms") }
+                            )
+                        }
                     }
 
-                    val upscaleStatus = when {
-                        file.name.contains("_x4") || (bitmap != null && bitmap.width >= 2048) -> "RealESRGAN 4x"
-                        file.name.contains("_x2") || (bitmap != null && bitmap.width >= 1024) -> "RealESRGAN 2x"
-                        else -> "None"
-                    }
+                    Spacer(Modifier.height(8.dp))
 
-                    val formattedSize = remember(file.length()) {
-                        formatFileSize(file.length())
-                    }
-
-                    val formattedTimestamp = remember(file.lastModified()) {
-                        SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(file.lastModified()))
-                    }
-
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    // Metadata details
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Prompt:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                            Text(record.prompt, style = MaterialTheme.typography.bodySmall)
+
+                            if (record.negativePrompt.isNotBlank()) {
+                                Spacer(Modifier.height(4.dp))
+                                Text("Negative Prompt:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                                Text(record.negativePrompt, style = MaterialTheme.typography.bodySmall)
+                            }
+
+                            Spacer(Modifier.height(4.dp))
+                            val dateStr = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(record.timestamp))
+                            Text("Model: ${record.modelName}", style = MaterialTheme.typography.bodySmall)
+                            Text("Steps: ${record.steps} | CFG: ${record.cfgScale} | Seed: ${record.seed}", style = MaterialTheme.typography.bodySmall)
+                            Text("Date: $dateStr", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+
+                    // Action buttons
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                onPopulateParams(record)
+                                inspectingRecord = null
+                            },
+                            modifier = Modifier.weight(1f)
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("Resolution:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                                Text(resolution, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Re-generate")
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                shareImage(context, record.imagePath)
                             }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("Upscale:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                                Text(upscaleStatus, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("File Size:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                                Text(formattedSize, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("Timestamp:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                                Text(formattedTimestamp, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
-                            }
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = "Share")
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                onDeleteSingle(record.id)
+                                inspectingRecord = null
+                            },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = "Delete")
                         }
                     }
                 }
             }
         }
     }
-}
 
-private fun formatFileSize(bytes: Long): String {
-    return when {
-        bytes < 1024 -> "$bytes B"
-        bytes < 1024 * 1024 -> "%.1f KB".format(Locale.US, bytes / 1024.0)
-        else -> "%.2f MB".format(Locale.US, bytes / (1024.0 * 1024.0))
+    // Confirmation dialog for Batch Delete
+    if (showDeleteConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmDialog = false },
+            title = { Text("Delete Generations") },
+            text = { Text("Are you sure you want to delete ${selectedIds.size} selected image(s)? This will remove them permanently from storage.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDeleteSelected()
+                        showDeleteConfirmDialog = false
+                    }
+                ) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirmDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun GalleryImageCard(
-    file: File,
-    onClick: () -> Unit
+fun GalleryItemCard(
+    record: GenerationEntity,
+    isSelected: Boolean,
+    isSelectionMode: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
 ) {
-    ElevatedCard(
+    val file = File(record.imagePath)
+    val bitmap = remember(record.imagePath) {
+        if (file.exists()) {
+            val boundsOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(file.absolutePath, boundsOptions)
+            var sampleSize = 1
+            while (boundsOptions.outWidth / (sampleSize * 2) >= 256) {
+                sampleSize *= 2
+            }
+            val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+            BitmapFactory.decodeFile(file.absolutePath, decodeOptions)?.asImageBitmap()
+        } else null
+    }
+
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+        ),
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(12.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
     ) {
         Column {
-            val bitmap = remember(file.absolutePath) {
-                BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap()
-            }
-
-            val upscaleBadge = when {
-                file.name.contains("_x4") || (bitmap != null && bitmap.width >= 2048) -> "4x"
-                file.name.contains("_x2") || (bitmap != null && bitmap.width >= 1024) -> "2x"
-                else -> null
-            }
-
-            Box(modifier = Modifier.fillMaxWidth()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1f)
+            ) {
                 if (bitmap != null) {
                     Image(
                         bitmap = bitmap,
-                        contentDescription = file.name,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(1f)
-                            .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)),
+                        contentDescription = record.prompt,
+                        modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
                     )
                 } else {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(1f),
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("Loading...", style = MaterialTheme.typography.bodySmall)
+                        Text("No preview", style = MaterialTheme.typography.bodySmall)
                     }
                 }
 
-                if (upscaleBadge != null) {
-                    Surface(
+                // Selection check overlay
+                if (isSelectionMode) {
+                    Box(
                         modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(6.dp),
-                        shape = RoundedCornerShape(4.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f),
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            .padding(8.dp)
+                            .size(24.dp)
+                            .align(Alignment.TopEnd)
+                            .clip(CircleShape)
+                            .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Black.copy(alpha = 0.5f)),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = upscaleBadge,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
+                        if (isSelected) {
+                            Icon(
+                                Icons.Default.CheckCircle,
+                                contentDescription = "Selected",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
+                }
+
+                // Resolution badge
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = Color.Black.copy(alpha = 0.65f),
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(6.dp)
+                ) {
+                    Text(
+                        text = if (record.upscaleMode > 0) "${record.width}p (${record.upscaleMode}x)" else "${record.width}p",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                    )
                 }
             }
 
-            Text(
-                text = file.name,
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
-            )
+            Column(modifier = Modifier.padding(8.dp)) {
+                Text(
+                    text = record.prompt,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
+    }
+}
+
+private fun shareImage(context: Context, imagePath: String) {
+    try {
+        val file = File(imagePath)
+        if (!file.exists()) return
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "image/png"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(shareIntent, "Share Image"))
+    } catch (_: Exception) {
+        // Fallback generic send
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, "Generated with Stable Diffusion NPU: $imagePath")
+        }
+        context.startActivity(Intent.createChooser(intent, "Share"))
     }
 }

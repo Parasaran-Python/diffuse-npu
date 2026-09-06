@@ -58,3 +58,35 @@ val ModelManifest.isRealESRGAN: Boolean
 val ModelManifest.isStableDiffusion: Boolean
     get() = !isRealESRGAN
 
+data class ModelVariant(
+    val id: String,
+    val name: String,
+    val description: String,
+    val isDefault: Boolean = false
+)
+
+object ModelVariants {
+    val SD_VARIANTS = listOf(
+        ModelVariant(
+            id = "dreamshaper_v8_base",
+            name = "DreamShaper v8 (General)",
+            description = "Balanced photorealistic & artistic SD 1.5 model",
+            isDefault = true
+        ),
+        ModelVariant(
+            id = "dreamshaper_v8_anime",
+            name = "DreamShaper v8 (Anime)",
+            description = "Stylized anime and manga art checkpoint"
+        ),
+        ModelVariant(
+            id = "dreamshaper_v8_realistic",
+            name = "DreamShaper v8 (Realistic)",
+            description = "Enhanced for lifelike human faces and natural scenes"
+        )
+    )
+
+    fun getSdVariants(): List<ModelVariant> = SD_VARIANTS
+
+    fun isSdModel(id: String): Boolean = !id.startsWith("realesrgan")
+}
+
