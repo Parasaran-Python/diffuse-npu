@@ -148,6 +148,14 @@ fun GenerateScreen(
             valueRange = 1.0f..20.0f
         )
 
+        Text("Batch Count: ${params.batchCount}")
+        Slider(
+            value = params.batchCount.toFloat(),
+            onValueChange = { onParamsChange(params.copy(batchCount = it.toInt())) },
+            valueRange = 1f..4f,
+            steps = 2
+        )
+
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -155,7 +163,8 @@ fun GenerateScreen(
             OutlinedTextField(
                 value = params.seed?.toString() ?: "",
                 onValueChange = {
-                    val s = it.toLongOrNull()
+                    val clean = it.filter { ch -> ch.isDigit() }
+                    val s = clean.toLongOrNull()
                     onParamsChange(params.copy(seed = s))
                 },
                 label = { Text("Seed (empty = random)") },

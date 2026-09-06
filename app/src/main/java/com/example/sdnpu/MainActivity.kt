@@ -74,7 +74,8 @@ class MainActivity : ComponentActivity() {
                             ModelDownloadDialog(
                                 status = downloadStatus,
                                 onDismiss = { showDownloadDialog = false },
-                                onStartDownload = { url -> viewModel.downloadModelFromUrl(url) }
+                                onStartDownload = { url -> viewModel.downloadModelFromUrl(url) },
+                                onCancelDownload = { viewModel.cancelDownload() }
                             )
                         }
                     }

@@ -11,7 +11,8 @@ import com.example.sdnpu.model.DownloadStatus
 fun ModelDownloadDialog(
     status: DownloadStatus,
     onDismiss: () -> Unit,
-    onStartDownload: (String) -> Unit
+    onStartDownload: (String) -> Unit,
+    onCancelDownload: () -> Unit = {}
 ) {
     var serverUrl by remember { mutableStateOf("http://192.168.1.100:8080/models/dreamshaper_v8/") }
 
@@ -20,7 +21,12 @@ fun ModelDownloadDialog(
             status is DownloadStatus.VerifyingChecksum
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            if (isDownloading) {
+                onCancelDownload()
+            }
+            onDismiss()
+        },
         title = { Text("Download Model") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -29,6 +35,7 @@ fun ModelDownloadDialog(
                     value = serverUrl,
                     onValueChange = { serverUrl = it },
                     label = { Text("Server URL") },
+                    enabled = !isDownloading,
                     modifier = Modifier.fillMaxWidth()
                 )
 
@@ -58,15 +65,30 @@ fun ModelDownloadDialog(
             }
         },
         confirmButton = {
-            Button(
-                onClick = { onStartDownload(serverUrl) },
-                enabled = !isDownloading
-            ) {
-                Text("Download")
+            if (isDownloading) {
+                Button(
+                    onClick = onCancelDownload,
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Cancel")
+                }
+            } else {
+                Button(
+                    onClick = { onStartDownload(serverUrl) }
+                ) {
+                    Text("Download")
+                }
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(
+                onClick = {
+                    if (isDownloading) {
+                        onCancelDownload()
+                    }
+                    onDismiss()
+                }
+            ) {
                 Text("Close")
             }
         }

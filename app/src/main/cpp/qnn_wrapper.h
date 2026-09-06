@@ -15,6 +15,9 @@ class QnnEngineWrapper {
 public:
     static QnnEngineWrapper& getInstance();
 
+    QnnEngineWrapper(const QnnEngineWrapper&) = delete;
+    QnnEngineWrapper& operator=(const QnnEngineWrapper&) = delete;
+
     Qnn_ErrorHandle_t initialize(QnnBackendTarget target);
     QnnRuntimeInfo getRuntimeInfo() const;
     float runBenchmarkDummy(int iterations);

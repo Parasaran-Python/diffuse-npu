@@ -61,7 +61,40 @@ class ModelManagerTest {
         val statuses = modelManager.downloadModel(manifest, baseUrl).toList()
         assertTrue(statuses.any { it is DownloadStatus.Completed })
         assertTrue(modelManager.isModelComplete("test_model", manifest))
+        assertTrue(File(File(modelsDir, "test_model"), ".complete").exists())
         assertEquals(listOf("test_model"), modelManager.listLocalModels())
+    }
+
+    @Test
+    fun testUrlNormalizationInFetchManifestAndDownloadModel() = runBlocking {
+        val testContent = "sample model tensor weights"
+        val expectedHash = ChecksumVerifier.calculateSha256(tempFolder.newFile().apply { writeText(testContent) })
+
+        val manifestJson = """
+        {
+          "model_id": "url_norm_model",
+          "version": "1.0",
+          "components": [
+            {"name": "unet", "file": "unet.bin", "sha256": "$expectedHash"}
+          ],
+          "qnn_sdk_version": "2.49.0",
+          "target_htp": "v73"
+        }
+        """.trimIndent()
+
+        server.enqueue(MockResponse().setResponseCode(200).setBody(manifestJson))
+        server.enqueue(MockResponse().setResponseCode(200).setBody(testContent))
+
+        // Provide URL ending with /manifest.json and whitespace
+        val manifestUrl = "  ${server.url("/").toString().removeSuffix("/")}/manifest.json  "
+        val manifestResult = modelManager.fetchManifest(manifestUrl)
+        assertTrue(manifestResult.isSuccess)
+        val manifest = manifestResult.getOrThrow()
+        assertEquals("url_norm_model", manifest.modelId)
+
+        val statuses = modelManager.downloadModel(manifest, manifestUrl).toList()
+        assertTrue(statuses.any { it is DownloadStatus.Completed })
+        assertTrue(File(File(modelsDir, "url_norm_model"), ".complete").exists())
     }
 
     @Test
@@ -95,14 +128,38 @@ class ModelManagerTest {
         assertTrue(failed.isNotEmpty())
         assertTrue(failed.first().reason.contains("Checksum verification failed"))
 
-        val corruptFile = File(File(modelsDir, "corrupt_model"), "unet.bin")
-        assertFalse(corruptFile.exists())
+        val corruptModelDir = File(modelsDir, "corrupt_model")
+        assertFalse(corruptModelDir.exists())
+    }
+
+    @Test
+    fun testDownloadModelHttpErrorCleansUpDirectory() = runBlocking {
+        val manifest = ModelManifest(
+            modelId = "failed_model",
+            version = "1.0",
+            components = listOf(
+                ModelComponent("unet", "unet.bin", "dummyhash")
+            ),
+            qnnSdkVersion = "2.49.0",
+            targetHtp = "v73"
+        )
+
+        server.enqueue(MockResponse().setResponseCode(500))
+        val baseUrl = server.url("/").toString()
+
+        val statuses = modelManager.downloadModel(manifest, baseUrl).toList()
+        val failed = statuses.filterIsInstance<DownloadStatus.Failed>()
+        assertTrue(failed.isNotEmpty())
+
+        val failedModelDir = File(modelsDir, "failed_model")
+        assertFalse(failedModelDir.exists())
     }
 
     @Test
     fun testDeleteModel() {
         val testModelDir = File(modelsDir, "to_delete").apply { mkdirs() }
         File(testModelDir, "dummy.bin").writeText("dummy")
+        File(testModelDir, ".complete").createNewFile()
         assertTrue(modelManager.listLocalModels().contains("to_delete"))
 
         val deleted = modelManager.deleteModel("to_delete")
@@ -112,6 +169,16 @@ class ModelManagerTest {
 
         val deletedNonExistent = modelManager.deleteModel("non_existent")
         assertFalse(deletedNonExistent)
+    }
+
+    @Test
+    fun testListLocalModelsExcludesIncompleteDirectories() {
+        val incompleteDir = File(modelsDir, "incomplete_dir").apply { mkdirs() }
+        File(incompleteDir, "model.bin").writeText("data")
+        assertFalse(modelManager.listLocalModels().contains("incomplete_dir"))
+
+        File(incompleteDir, ".complete").createNewFile()
+        assertTrue(modelManager.listLocalModels().contains("incomplete_dir"))
     }
 
     @Test

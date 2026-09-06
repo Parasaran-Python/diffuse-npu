@@ -97,4 +97,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+
+    fun cancelDownload() {
+        downloadJob?.cancel()
+        downloadJob = null
+        _downloadStatus.value = DownloadStatus.Idle
+    }
 }
