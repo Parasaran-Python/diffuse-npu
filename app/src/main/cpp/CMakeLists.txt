@@ -20,6 +20,7 @@ add_library(
     sdnpu_engine
     SHARED
     qnn_wrapper.cpp
+    clip_encoder.cpp
     jni_bridge.cpp
 )
 
