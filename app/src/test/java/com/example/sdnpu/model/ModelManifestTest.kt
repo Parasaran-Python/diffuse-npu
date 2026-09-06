@@ -133,7 +133,7 @@ class ModelManifestTest {
         val sdturboPreset = presets.find { it.id == "sdturbo" }
         assertNotNull(sdturboPreset)
         assertEquals("SD-Turbo (ONNX / LCM)", sdturboPreset?.name)
-        assertTrue(sdturboPreset?.defaultUrl?.contains("Heliosoph/sd-turbo-onnx") == true)
+        assertTrue(sdturboPreset?.defaultUrl?.contains("microsoft/sd-turbo-webnn") == true)
         assertTrue(sdturboPreset?.isDefault == true)
 
         val customPreset = presets.find { it.id == "custom" }

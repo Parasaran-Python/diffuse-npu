@@ -104,8 +104,9 @@ class MainViewModel(
     private val _params = MutableStateFlow(
         GenerationParams(
             prompt = "",
-            steps = 20,
-            cfgScale = 7.0f,
+            modelId = "sdturbo",
+            steps = 1,
+            cfgScale = 1.0f,
             sampler = SamplerType.EULER_A,
             batchCount = 1,
             upscaleMode = UpscaleMode.OFF
@@ -320,7 +321,7 @@ class MainViewModel(
                     url.contains("sd-turbo", ignoreCase = true) || url.contains("sdturbo", ignoreCase = true) -> "sdturbo"
                     url.contains("anime", ignoreCase = true) -> "dreamshaper_v8_anime"
                     url.contains("realistic", ignoreCase = true) -> "dreamshaper_v8_realistic"
-                    else -> "dreamshaper_v8_base"
+                    else -> "sdturbo"
                 }
                 when (resolvedId) {
                     "sdturbo" -> ModelManifest.sdturbo()

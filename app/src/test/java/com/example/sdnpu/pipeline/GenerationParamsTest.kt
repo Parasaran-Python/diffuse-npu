@@ -11,8 +11,9 @@ class GenerationParamsTest {
         )
         val validation = params.validate()
         assertTrue(validation.isValid)
-        assertEquals(20, params.steps)
-        assertEquals(7.0f, params.cfgScale, 0.001f)
+        assertEquals("sdturbo", params.modelId)
+        assertEquals(1, params.steps)
+        assertEquals(1.0f, params.cfgScale, 0.001f)
         assertEquals(UpscaleMode.OFF, params.upscaleMode)
         assertEquals(SamplerType.EULER_A, params.sampler)
     }
@@ -27,28 +28,28 @@ class GenerationParamsTest {
 
     @Test
     fun testInvalidStepRangeFailsValidation() {
-        val paramsLow = GenerationParams(prompt = "cat", steps = 5)
+        val paramsLow = GenerationParams(prompt = "cat", steps = 0)
         val validationLow = paramsLow.validate()
         assertFalse(validationLow.isValid)
-        assertEquals("Steps must be between 10 and 50", validationLow.errorMessage)
+        assertEquals("Steps must be between 1 and 50", validationLow.errorMessage)
 
         val paramsHigh = GenerationParams(prompt = "cat", steps = 55)
         val validationHigh = paramsHigh.validate()
         assertFalse(validationHigh.isValid)
-        assertEquals("Steps must be between 10 and 50", validationHigh.errorMessage)
+        assertEquals("Steps must be between 1 and 50", validationHigh.errorMessage)
     }
 
     @Test
     fun testInvalidCfgScaleFailsValidation() {
-        val paramsLow = GenerationParams(prompt = "cat", cfgScale = 0.5f)
+        val paramsLow = GenerationParams(prompt = "cat", cfgScale = -0.5f)
         val validationLow = paramsLow.validate()
         assertFalse(validationLow.isValid)
-        assertEquals("CFG scale must be between 1.0 and 20.0", validationLow.errorMessage)
+        assertEquals("CFG scale must be between 0.0 and 20.0", validationLow.errorMessage)
 
         val paramsHigh = GenerationParams(prompt = "cat", cfgScale = 25.0f)
         val validationHigh = paramsHigh.validate()
         assertFalse(validationHigh.isValid)
-        assertEquals("CFG scale must be between 1.0 and 20.0", validationHigh.errorMessage)
+        assertEquals("CFG scale must be between 0.0 and 20.0", validationHigh.errorMessage)
     }
 
     @Test
@@ -68,8 +69,8 @@ class GenerationParamsTest {
     fun testBoundaryConditionsAreValid() {
         val minBoundary = GenerationParams(
             prompt = "cat",
-            steps = 10,
-            cfgScale = 1.0f,
+            steps = 1,
+            cfgScale = 0.0f,
             batchCount = 1
         )
         assertTrue(minBoundary.validate().isValid)
