@@ -16,6 +16,7 @@ import java.util.concurrent.TimeUnit
 
 class ModelManager(
     private val baseStorageDir: File,
+    private val secondaryStorageDir: File? = null,
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
@@ -25,6 +26,9 @@ class ModelManager(
     init {
         if (!baseStorageDir.exists()) {
             baseStorageDir.mkdirs()
+        }
+        secondaryStorageDir?.let {
+            if (!it.exists()) it.mkdirs()
         }
     }
 
@@ -147,20 +151,29 @@ class ModelManager(
     }.flowOn(Dispatchers.IO)
 
     fun isModelComplete(modelId: String, manifest: ModelManifest): Boolean {
-        val modelDir = File(baseStorageDir, modelId)
-        if (!modelDir.exists() || !modelDir.isDirectory) return false
-        if (!File(modelDir, ".complete").exists()) return false
-        for (comp in manifest.components) {
-            val file = File(modelDir, comp.file)
-            if (!ChecksumVerifier.verifyFile(file, comp.sha256)) {
-                return false
-            }
+        val dirs = listOfNotNull(baseStorageDir, secondaryStorageDir)
+        return dirs.any { dir ->
+            val modelDir = File(dir, modelId)
+            if (modelDir.exists() && modelDir.isDirectory && File(modelDir, ".complete").exists()) {
+                manifest.components.all { comp ->
+                    val file = File(modelDir, comp.file)
+                    ChecksumVerifier.verifyFile(file, comp.sha256)
+                }
+            } else false
         }
-        return true
+    }
+
+    companion object {
+        val REQUIRED_DIFFUSION_ONNX_FILES = listOf("text_encoder.onnx", "unet.onnx", "vae_decoder.onnx")
     }
 
     fun listLocalModels(): List<String> {
-        return baseStorageDir.listFiles { f -> f.isDirectory && File(f, ".complete").exists() }?.map { it.name } ?: emptyList()
+        val dirs = listOfNotNull(baseStorageDir, secondaryStorageDir)
+        return dirs.flatMap { dir ->
+            dir.listFiles { f ->
+                f.isDirectory && (File(f, ".complete").exists() || REQUIRED_DIFFUSION_ONNX_FILES.all { File(f, it).exists() })
+            }?.map { it.name } ?: emptyList()
+        }.distinct()
     }
 
     fun listDiffusionModels(): List<String> {
@@ -173,28 +186,42 @@ class ModelManager(
 
     fun isRealESRGANAvailable(scale: Int): Boolean {
         val modelId = "realesrgan_x${scale}plus"
-        val modelDir = File(baseStorageDir, modelId)
-        return modelDir.exists() && File(modelDir, "model.bin").exists() && File(modelDir, ".complete").exists()
+        val dirs = listOfNotNull(baseStorageDir, secondaryStorageDir)
+        return dirs.any { dir ->
+            val modelDir = File(dir, modelId)
+            modelDir.exists() && File(modelDir, "model.bin").exists() && File(modelDir, ".complete").exists()
+        }
     }
 
     fun loadLocalManifest(modelId: String): ModelManifest? {
-        val manifestFile = File(File(baseStorageDir, modelId), "manifest.json")
-        if (!manifestFile.exists()) {
-            return when (modelId) {
-                "realesrgan_x2plus" -> ModelManifest.realesrgan_x2plus()
-                "realesrgan_x4plus" -> ModelManifest.realesrgan_x4plus()
-                else -> null
+        val dirs = listOfNotNull(baseStorageDir, secondaryStorageDir)
+        for (dir in dirs) {
+            val manifestFile = File(File(dir, modelId), "manifest.json")
+            if (manifestFile.exists()) {
+                try {
+                    return gson.fromJson(manifestFile.readText(), ModelManifest::class.java)
+                } catch (e: Exception) {
+                    // Fall through
+                }
             }
         }
-        return try {
-            gson.fromJson(manifestFile.readText(), ModelManifest::class.java)
-        } catch (e: Exception) {
-            null
+        return when (modelId) {
+            "sdturbo" -> ModelManifest.sdturbo()
+            "realesrgan_x2plus" -> ModelManifest.realesrgan_x2plus()
+            "realesrgan_x4plus" -> ModelManifest.realesrgan_x4plus()
+            else -> null
         }
     }
 
     fun deleteModel(modelId: String): Boolean {
-        val modelDir = File(baseStorageDir, modelId)
-        return if (modelDir.exists()) modelDir.deleteRecursively() else false
+        var deleted = false
+        val dirs = listOfNotNull(baseStorageDir, secondaryStorageDir)
+        for (dir in dirs) {
+            val modelDir = File(dir, modelId)
+            if (modelDir.exists()) {
+                deleted = modelDir.deleteRecursively() || deleted
+            }
+        }
+        return deleted
     }
 }

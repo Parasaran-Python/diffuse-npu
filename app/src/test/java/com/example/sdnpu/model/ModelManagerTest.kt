@@ -238,4 +238,37 @@ class ModelManagerTest {
         assertTrue(modelManager.isRealESRGANAvailable(2))
         assertFalse(modelManager.isRealESRGANAvailable(4))
     }
+
+    @Test
+    fun testListLocalModelsDetectsOnnxModelsWithoutCompleteMarker() {
+        val sdturboDir = File(modelsDir, "sdturbo").apply { mkdirs() }
+        File(sdturboDir, "text_encoder.onnx").createNewFile()
+        File(sdturboDir, "unet.onnx").createNewFile()
+        File(sdturboDir, "vae_decoder.onnx").createNewFile()
+
+        val localModels = modelManager.listLocalModels()
+        assertTrue(localModels.contains("sdturbo"))
+
+        val diffusionModels = modelManager.listDiffusionModels()
+        assertTrue(diffusionModels.contains("sdturbo"))
+    }
+
+    @Test
+    fun testListLocalModelsExcludesIncompleteOnnxDirectory() {
+        val incompleteOnnxDir = File(modelsDir, "incomplete_onnx").apply { mkdirs() }
+        File(incompleteOnnxDir, "text_encoder.onnx").createNewFile()
+        File(incompleteOnnxDir, "unet.onnx").createNewFile()
+        // Missing vae_decoder.onnx and no .complete
+        assertFalse(modelManager.listLocalModels().contains("incomplete_onnx"))
+        assertFalse(modelManager.listDiffusionModels().contains("incomplete_onnx"))
+    }
+
+    @Test
+    fun testLoadLocalManifestForSdTurboFallback() {
+        File(modelsDir, "sdturbo").apply { mkdirs() }
+        val manifest = modelManager.loadLocalManifest("sdturbo")
+        assertNotNull(manifest)
+        assertEquals("sdturbo", manifest?.modelId)
+        assertEquals(3, manifest?.components?.size)
+    }
 }

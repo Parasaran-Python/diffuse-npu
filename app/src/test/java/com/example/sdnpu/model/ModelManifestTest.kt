@@ -1,8 +1,7 @@
 package com.example.sdnpu.model
 
 import com.google.gson.Gson
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
+import org.junit.Assert.*
 import org.junit.Test
 
 class ModelManifestTest {
@@ -95,6 +94,35 @@ class ModelManifestTest {
         assertEquals("abc123hash", deserialized.components[0].sha256)
         assertEquals(true, deserialized.isRealESRGAN)
         assertEquals(false, deserialized.isStableDiffusion)
+    }
+
+    @Test
+    fun testSdTurboManifestContainsRequiredOnnxComponents() {
+        val manifest = ModelManifest.sdturbo()
+        assertEquals("sdturbo", manifest.modelId)
+        assertEquals("1.0", manifest.version)
+        assertEquals("ort-1.20", manifest.qnnSdkVersion)
+        assertEquals("v73", manifest.targetHtp)
+        val files = manifest.components.map { it.file }
+        assertTrue(files.contains("text_encoder.onnx"))
+        assertTrue(files.contains("unet.onnx"))
+        assertTrue(files.contains("vae_decoder.onnx"))
+        assertEquals(3, manifest.components.size)
+        assertEquals(false, manifest.isRealESRGAN)
+        assertEquals(true, manifest.isStableDiffusion)
+
+        // Test alias
+        val manifestCamel = ModelManifest.sdTurbo()
+        assertEquals("sdturbo", manifestCamel.modelId)
+    }
+
+    @Test
+    fun testModelVariantsIncludesSdTurbo() {
+        val variants = ModelVariants.getSdVariants()
+        val sdturboVariant = variants.find { it.id == "sdturbo" }
+        assertNotNull(sdturboVariant)
+        assertEquals("SD-Turbo (ONNX / LCM)", sdturboVariant?.name)
+        assertTrue(ModelVariants.isSdModel("sdturbo"))
     }
 }
 
