@@ -423,12 +423,94 @@ http://<HOST_IP>:8080/models/dreamshaper_v8/manifest.json
 - [x] Model manifest support for `realesrgan_x2plus` and `realesrgan_x4plus` with SHA-256 verification.
 - [x] Comprehensive test suite expanded to 66 unit tests with 100% passing rate.
 
-### Phase 4: Advanced UI & Polish
-- [ ] Room database integration for persistent generation history and image metadata.
-- [ ] Full-screen image viewer with metadata inspection, sharing, and export.
-- [ ] Model selector supporting pre-merged LoRA variants (anime, realistic, artistic).
-- [ ] App settings persistence using Jetpack DataStore.
-- [ ] Battery and thermal throttling detection with warning indicators.
+### 1.5 Phase 4: Advanced UI, Persistence & Device Health Architecture
+
+Phase 4 integrates local SQLite persistence, Jetpack DataStore preferences, hardware health observers, background system notifications, and advanced Material 3 user workflows.
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                        Phase 4 System Architecture                     │
+├────────────────────────────────────────────────────────────────────────┤
+│                                                                        │
+│  ┌──────────────────────┐  ┌──────────────────────┐  ┌──────────────┐  │
+│  │   GenerateScreen     │  │    GalleryScreen     │  │SettingsScreen│  │
+│  │  - Model Variants    │  │  - Prompt Search     │  │- Defaults    │  │
+│  │  - Thermal/Bat Alert │  │  - Multi-Selection   │  │- Compute Mode│  │
+│  │  - Live Status & Bar │  │  - Metadata Inspect  │  │- Theme (D/L) │  │
+│  └──────────┬───────────┘  └──────────┬───────────┘  └──────┬───────┘  │
+│             │                         │                     │          │
+│             └─────────────────────────┼─────────────────────┘          │
+│                                       ▼                                │
+│                     ┌───────────────────────────────────┐              │
+│                     │           MainViewModel           │              │
+│                     └─┬───────────────┬───────────────┬─┘              │
+│                       │               │               │                │
+│         ┌─────────────┴──┐     ┌──────┴───────┐     ┌─┴─────────────┐  │
+│         ▼                ▼     ▼              ▼     ▼               ▼  │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌────────────────┐ │
+│  │HistoryRepo   │ │SettingsRepo  │ │DeviceMonitor │ │NotificationMgr │ │
+│  │(SQLite DAO)  │ │(DataStore)   │ │(Thermal/Bat) │ │(Low Priority)  │ │
+│  └──────────────┘ └──────────────┘ └──────────────┘ └────────────────┘ │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Generation History (`com.example.sdnpu.data`)**:
+  - `GenerationEntity`: Encapsulates generation parameters, dimensions, file size, timestamps, duration, and output path.
+  - `GenerationDao` & `SQLiteGenerationDao`: High-performance indexed SQLite database (`generations` table with indices on `timestamp DESC` and `prompt`) with cursor leak protection and parameterized queries.
+  - `HistoryRepository`: Thread-safe repository managing `StateFlow<List<GenerationEntity>>`, prompt text querying, batch deletion with physical file cleanup, and automated filesystem synchronization to index uncataloged images.
+- **Preferences DataStore (`com.example.sdnpu.data`)**:
+  - `AppSettings`: Persists user generation defaults (steps, CFG scale, sampler, batch count, upscale mode), compute backend selection (`NPU`, `GPU`, `CPU`), thermal alerts toggle, high-performance clock mode, and dark/light theme mode.
+  - `SettingsRepository`: Reactive flow-driven storage backed by AndroidX DataStore Preferences with automated boundary sanitization.
+- **Device Health & Thermal Monitoring (`com.example.sdnpu.system`)**:
+  - `DeviceMonitor`: Observes Android `PowerManager.OnThermalStatusChangedListener` (API 29+) and sticky battery broadcasts, reporting throttling severity (`NONE`, `LIGHT`, `MODERATE`, `SEVERE`, `CRITICAL`, `EMERGENCY`) and battery level.
+  - Generates warning banners in `GenerateScreen` before long inference runs if thermal throttling or critical battery state is detected.
+- **Background System Notifications (`com.example.sdnpu.system`)**:
+  - `GenerationNotificationManager`: Low-priority notification channel (`sd_npu_generation`) showing silent ongoing step progress during latent diffusion and super-resolution, plus rich completion alerts with downsampled image previews and deep-link resumption.
+- **Advanced User Interface**:
+  - `GenerateScreen`: Pre-merged DreamShaper variants selector (General, Anime, Realistic), interactive sliders, RealESRGAN filter chips, and live progress indicators.
+  - `GalleryScreen`: Instant prompt search, multi-selection mode with batch deletion, and comprehensive inspection dialog with "Re-generate with these params" action and Android share sheet intent.
+  - `SettingsScreen`: Full settings configuration, compute acceleration target, theme switcher, model management, and cache clearing.
+
+---
+
+## 6. Project Roadmap
+
+### Phase 1: Foundation (Completed)
+- [x] Gradle 9.5 Kotlin DSL build system with Version Catalog (`libs.versions.toml`).
+- [x] NDK r28 & CMake 3.22 C++ integration with QNN dynamic loader and fallback stubs.
+- [x] OkHttp model downloader with resumable stream handling and SHA-256 integrity verification.
+- [x] Pipeline orchestration data classes, samplers, upscale modes, and boundary validation.
+- [x] Jetpack Compose Material 3 dark-themed UI (Generate, Gallery, Settings, Download Dialog).
+- [x] End-to-end build and unit test verification.
+
+### Phase 2: SD Engine (Completed)
+- [x] CLIP text encoder QNN context integration and subword tokenization (`ClipTokenizer`, `ClipEncoder`).
+- [x] Gaussian noise generation via Box-Muller transform for latent space initialization (`GaussianNoise`).
+- [x] UNet iterative latent denoising loop implementation in native C++ with CFG scaling (`UnetDenoiser`).
+- [x] Diffusion schedulers supporting Euler a, DPM++ 2M Karras, and DDIM (`DiffusionScheduler`).
+- [x] VAE decoder execution and post-processing to generate 512×512 RGB Android Bitmaps (`VaeDecoder`, `VaePostProcessor`).
+- [x] Full native C++ coordinator (`SdPipeline`) with mutex synchronization and JNI bridge (`sd_engine_jni.cpp`).
+- [x] Reactive coroutine streaming via `channelFlow` in `PipelineManager`.
+- [x] Comprehensive unit test suite (45 unit tests covering tokenization, schedulers, noise, engine, and pipeline).
+
+### Phase 3: RealESRGAN Chaining (Completed)
+- [x] RealESRGAN QNN context integration (`esrgan_pipeline.h/cpp` & `ESRGANEngine.kt`).
+- [x] Sequential memory-efficient execution chain (SD -> Free SD Context -> RealESRGAN) to prevent NPU context memory spikes.
+- [x] High-quality bicubic Keys convolution algorithm ($a = -0.5f$) with half-pixel coordinate mapping and pure-JVM fallback.
+- [x] Real-time progress updates across generation and upscaling stages with dual cooperative cancellation.
+- [x] Dynamic resolution badges (512×512, 1024×1024, 2048×2048) and upscaling progress card in Jetpack Compose UI.
+- [x] Model manifest support for `realesrgan_x2plus` and `realesrgan_x4plus` with SHA-256 verification.
+- [x] Comprehensive test suite expanded to 66 unit tests with 100% passing rate.
+
+### Phase 4: Advanced UI & Polish (Completed)
+- [x] Indexed SQLite database (`HistoryRepository`, `SQLiteGenerationDao`) with automated filesystem scanning and CRUD operations.
+- [x] Full-screen inspection dialog with detailed metadata, "Re-generate with these params", and Android share sheet.
+- [x] Model selector supporting DreamShaper v8 variants (General, Anime, Realistic) with status badges.
+- [x] Persistent user settings and generation defaults powered by Jetpack DataStore Preferences (`SettingsRepository`).
+- [x] Thermal throttling and battery level monitoring (`DeviceMonitor`) with proactive warning banners.
+- [x] Background generation notifications (`GenerationNotificationManager`) with live step progress and image previews.
+- [x] Multi-selection gallery management with batch deletion and search-by-prompt filtering.
+- [x] Full unit test suite expanded to 101 tests (100% passing rate) and clean dual-ABI APK assembly (18 MB).
 
 ### Phase 5: Optimization & Device Testing
 - [ ] Snapdragon 8 Gen 2 on-device performance profiling (NPU vs GPU vs CPU).
@@ -442,3 +524,4 @@ http://<HOST_IP>:8080/models/dreamshaper_v8/manifest.json
 ## 7. License
 
 This project is developed for local on-device inference research and personal use.
+

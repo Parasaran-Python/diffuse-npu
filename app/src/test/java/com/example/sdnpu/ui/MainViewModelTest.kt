@@ -14,8 +14,11 @@ import com.example.sdnpu.system.DeviceMonitor
 import com.example.sdnpu.system.GenerationNotificationManager
 import com.example.sdnpu.system.ThermalStatus
 import com.example.sdnpu.pipeline.SamplerType
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -99,6 +102,9 @@ class MainViewModelTest {
 
     @After
     fun tearDown() {
+        runBlocking {
+            viewModel.viewModelScope.coroutineContext[Job]?.children?.forEach { it.cancelAndJoin() }
+        }
         Dispatchers.resetMain()
         testDir.deleteRecursively()
     }
