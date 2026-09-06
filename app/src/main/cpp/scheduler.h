@@ -14,6 +14,7 @@ public:
     DiffusionScheduler(SamplerAlgorithm algo);
     void initTimesteps(int steps);
     float getSigma(int stepIdx) const;
+    float getTimestep(int stepIdx) const;
     void step(const float* sample, const float* modelOutput, int stepIdx, float* outSample, int size);
 
     SamplerAlgorithm getAlgorithm() const { return algo_; }

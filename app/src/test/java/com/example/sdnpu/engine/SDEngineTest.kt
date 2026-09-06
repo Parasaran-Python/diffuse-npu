@@ -80,4 +80,26 @@ class SDEngineTest {
 
         assertFalse("Different seeds must produce different latent/image outputs", bytes1.contentEquals(bytes2))
     }
+
+    @Test
+    fun testCancellationThrowsException() {
+        val params = GenerationParams(
+            prompt = "a city under starry night sky",
+            steps = 20,
+            seed = 5555L
+        )
+        val tempDir = File(System.getProperty("java.io.tmpdir"), "test_models")
+        var stepCount = 0
+        try {
+            SDEngine.generate(params, tempDir) { step, _ ->
+                stepCount = step
+                if (step == 3) {
+                    SDEngine.cancel()
+                }
+            }
+            fail("Expected CancellationException")
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            assertTrue("Step count should have stopped near cancellation point", stepCount in 3..4)
+        }
+    }
 }

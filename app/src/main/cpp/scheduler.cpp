@@ -22,6 +22,11 @@ float DiffusionScheduler::getSigma(int stepIdx) const {
     return sigmas_[stepIdx];
 }
 
+float DiffusionScheduler::getTimestep(int stepIdx) const {
+    if (stepIdx < 0 || stepIdx >= static_cast<int>(timesteps_.size())) return 0.0f;
+    return timesteps_[stepIdx];
+}
+
 void DiffusionScheduler::step(const float* sample, const float* modelOutput, int stepIdx, float* outSample, int size) {
     if (!sample || !modelOutput || !outSample || size <= 0) return;
     if (stepIdx < 0 || stepIdx + 1 >= static_cast<int>(sigmas_.size())) {

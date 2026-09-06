@@ -94,4 +94,33 @@ class PipelineManagerTest {
         file.delete()
         testOutputDir.delete()
     }
+
+    @Test
+    fun testBatchGenerationProducesMultipleImages(): Unit = runBlocking {
+        val testOutputDir = java.io.File(System.getProperty("java.io.tmpdir"), "test_pipeline_batch_${System.currentTimeMillis()}")
+        val customPipelineManager = PipelineManager(outputDir = testOutputDir)
+
+        val params = GenerationParams(
+            prompt = "a majestic lion in savanna",
+            steps = 10,
+            batchCount = 2,
+            upscaleMode = UpscaleMode.OFF
+        )
+
+        val states = customPipelineManager.runGeneration(params).toList()
+        val completedStates = states.filterIsInstance<PipelineState.Completed>()
+        assertEquals(2, completedStates.size)
+
+        val imagePaths = completedStates.mapNotNull { it.imagePath }
+        assertEquals(2, imagePaths.size)
+        assertNotEquals(imagePaths[0], imagePaths[1])
+
+        imagePaths.forEach { path ->
+            val f = java.io.File(path)
+            assertTrue("Generated batch file should exist", f.exists())
+            assertTrue("Generated batch file should have content", f.length() > 0)
+            f.delete()
+        }
+        testOutputDir.delete()
+    }
 }

@@ -127,8 +127,9 @@ The SD Engine coordinates the complete text-to-image latent diffusion pipeline o
    - Utilizes the Box-Muller transform on paired uniform pseudorandom samples to yield standard normal distributions $\mathcal{N}(0, 1)$ without external dependencies.
 3. **Diffusion Schedulers (`scheduler.h/cpp`)**:
    - Implements native C++ mathematical schedules with precomputed $\beta$ and $\alpha$ cumulative products ($\bar{\alpha}_t$).
-   - **Euler Ancestral (`EulerAncestralScheduler`)**: Stochastic step progression computing $\sigma_{up} = \sqrt{\sigma_{t-1}^2 (\sigma_t^2 - \sigma_{t-1}^2) / \sigma_t^2}$ and injecting ancestral noise at each iteration.
-   - **DPM++ 2M Karras (`DpmPlusPlus2MKarrasScheduler`)**: Second-order Adams-Bashforth multi-step solver operating on Karras noise levels ($\sigma_{min}=0.1, \sigma_{max}=14.61, \rho=7.0$), delivering high visual convergence in 15–20 steps.
+   - Current implementation provides a first-order Euler stepping baseline (`DiffusionScheduler`). Multi-step DPM++ 2M Karras and ancestral stochastic noise injection mathematics are scheduled for full hardware execution alongside QNN graph acceleration in Phase 3.
+   - **Euler Ancestral (`EulerAncestralScheduler`)**: Baseline first-order ODE progression; full stochastic step progression with $\sigma_{up} = \sqrt{\sigma_{t-1}^2 (\sigma_t^2 - \sigma_{t-1}^2) / \sigma_t^2}$ noise injection scheduled for Phase 3.
+   - **DPM++ 2M Karras (`DpmPlusPlus2MKarrasScheduler`)**: Second-order Adams-Bashforth multi-step solver operating on Karras noise levels ($\sigma_{min}=0.1, \sigma_{max}=14.61, \rho=7.0$), delivering high visual convergence in 15–20 steps (Phase 3).
    - **DDIM (`DdimScheduler`)**: Deterministic implicit solver providing exact inverted ODE trajectories.
 4. **UNet Latent Denoiser (`unet_denoiser.h/cpp`)**:
    - Iteratively denoises latents by executing the QNN UNet graph (`unet.bin`) at discrete scheduler timesteps.

@@ -60,7 +60,8 @@ class MainActivity : ComponentActivity() {
                                 pipelineState = pipelineState,
                                 localModels = localModels,
                                 onParamsChange = { viewModel.updateParams(it) },
-                                onGenerate = { viewModel.startGeneration() }
+                                onGenerate = { viewModel.startGeneration() },
+                                onCancel = { viewModel.cancelGeneration() }
                             )
                             NavTab.GALLERY -> GalleryScreen()
                             NavTab.SETTINGS -> SettingsScreen(

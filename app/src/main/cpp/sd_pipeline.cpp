@@ -21,6 +21,10 @@ bool SdPipeline::loadContext(const std::string& modelDir) {
     return true;
 }
 
+void SdPipeline::requestCancel() {
+    cancelRequested_ = true;
+}
+
 bool SdPipeline::generate(
     const std::vector<int32_t>& promptTokens,
     const std::vector<int32_t>& negTokens,
@@ -32,6 +36,7 @@ bool SdPipeline::generate(
     std::vector<uint8_t>& outImageBytes
 ) {
     std::lock_guard<std::mutex> lock(mutex_);
+    cancelRequested_ = false;
     if (!isLoaded_ || steps <= 0) return false;
 
     // 1. CLIP text embeddings
@@ -61,7 +66,10 @@ bool SdPipeline::generate(
     std::vector<float> nextLatents(latentSize);
 
     for (int s = 0; s < steps; ++s) {
-        float timestep = 999.0f * (1.0f - static_cast<float>(s) / static_cast<float>(steps));
+        if (cancelRequested_) {
+            return false;
+        }
+        float timestep = scheduler.getTimestep(s);
         if (!unetDenoiser_.predictNoise(latents.data(), timestep, condEmbeddings.data(), condNoise.data(), latentSize) ||
             !unetDenoiser_.predictNoise(latents.data(), timestep, uncondEmbeddings.data(), uncondNoise.data(), latentSize)) {
             return false;

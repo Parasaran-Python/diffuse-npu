@@ -9,6 +9,7 @@
 #include <functional>
 #include <cstdint>
 #include <mutex>
+#include <atomic>
 
 class SdPipeline {
 public:
@@ -25,6 +26,7 @@ public:
         std::function<void(int, int)> progressCallback,
         std::vector<uint8_t>& outImageBytes
     );
+    void requestCancel();
     void unloadContext();
     bool isLoaded() const;
 
@@ -41,4 +43,5 @@ private:
     VaeDecoder vaeDecoder_;
     bool isLoaded_;
     mutable std::mutex mutex_;
+    std::atomic<bool> cancelRequested_{false};
 };

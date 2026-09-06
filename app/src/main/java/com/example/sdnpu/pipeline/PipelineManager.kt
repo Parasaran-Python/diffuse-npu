@@ -20,6 +20,10 @@ class PipelineManager(
     private val modelsDir: File = File(System.getProperty("java.io.tmpdir"), "models"),
     private val outputDir: File = File(System.getProperty("java.io.tmpdir"), "generations")
 ) {
+    fun cancel() {
+        SDEngine.cancel()
+    }
+
     fun runGeneration(params: GenerationParams): Flow<PipelineState> = channelFlow {
         val validation = params.validate()
         if (!validation.isValid) {
@@ -31,27 +35,39 @@ class PipelineManager(
             val startTime = System.currentTimeMillis()
             send(PipelineState.LoadingModel(params.modelId))
 
-            // Generate raw RGBA image bytes on IO dispatcher with direct step progress plumbing
-            val imageBytes = withContext(Dispatchers.IO) {
-                SDEngine.generate(params, modelsDir) { step, total ->
-                    trySend(PipelineState.Generating(step, total, "Denoising step $step/$total"))
+            val baseSeed = params.seed ?: System.currentTimeMillis()
+            for (batchIdx in 0 until params.batchCount) {
+                val batchSeed = baseSeed + batchIdx
+                val batchParams = params.copy(seed = batchSeed)
+
+                // Generate raw RGBA image bytes on IO dispatcher with direct step progress plumbing
+                val imageBytes = withContext(Dispatchers.IO) {
+                    SDEngine.generate(batchParams, modelsDir) { step, total ->
+                        val msg = if (params.batchCount > 1) {
+                            "Batch ${batchIdx + 1}/${params.batchCount} - Denoising step $step/$total"
+                        } else {
+                            "Denoising step $step/$total"
+                        }
+                        trySend(PipelineState.Generating(step, total, msg))
+                    }
                 }
-            }
 
-            // Save Bitmap/PNG to storage
-            val imageFile = File(outputDir, "sd_${System.currentTimeMillis()}.png")
-            withContext(Dispatchers.IO) {
-                saveRgbaAsPng(imageBytes, 512, 512, imageFile)
-            }
+                // Save Bitmap/PNG to storage with distinct timestamp and index
+                val imageFile = File(outputDir, "sd_${System.currentTimeMillis()}_$batchIdx.png")
+                withContext(Dispatchers.IO) {
+                    saveRgbaAsPng(imageBytes, 512, 512, imageFile)
+                }
 
-            if (params.upscaleMode != UpscaleMode.OFF) {
-                send(PipelineState.Upscaling(params.upscaleMode.scale, 0))
-                send(PipelineState.Upscaling(params.upscaleMode.scale, 100))
-            }
+                if (params.upscaleMode != UpscaleMode.OFF) {
+                    send(PipelineState.Upscaling(params.upscaleMode.scale, 0))
+                    send(PipelineState.Upscaling(params.upscaleMode.scale, 100))
+                }
 
-            val totalTime = System.currentTimeMillis() - startTime
-            send(PipelineState.Completed("Generation finished successfully", totalTime, imageFile.absolutePath))
+                val elapsedMs = System.currentTimeMillis() - startTime
+                send(PipelineState.Completed("Generation finished successfully", elapsedMs, imageFile.absolutePath))
+            }
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             send(PipelineState.Error(e.message ?: "Generation failed"))
         }
     }.buffer(capacity = 128, onBufferOverflow = BufferOverflow.SUSPEND)
@@ -90,16 +106,19 @@ class PipelineManager(
         }
 
         val deflater = Deflater(Deflater.DEFAULT_COMPRESSION)
-        deflater.setInput(rawScanlines)
-        deflater.finish()
-        val baos = ByteArrayOutputStream()
-        val buffer = ByteArray(4096)
-        while (!deflater.finished()) {
-            val count = deflater.deflate(buffer)
-            baos.write(buffer, 0, count)
+        val compressedIdat = try {
+            deflater.setInput(rawScanlines)
+            deflater.finish()
+            val baos = ByteArrayOutputStream()
+            val buffer = ByteArray(4096)
+            while (!deflater.finished()) {
+                val count = deflater.deflate(buffer)
+                baos.write(buffer, 0, count)
+            }
+            baos.toByteArray()
+        } finally {
+            deflater.end()
         }
-        deflater.end()
-        val compressedIdat = baos.toByteArray()
 
         FileOutputStream(outputFile).use { fos ->
             val dos = DataOutputStream(fos)

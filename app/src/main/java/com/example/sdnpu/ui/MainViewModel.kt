@@ -82,6 +82,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun cancelGeneration() {
+        pipelineManager.cancel()
+        generationJob?.cancel()
+        generationJob = null
+        _pipelineState.value = PipelineState.Idle
+    }
+
     fun downloadModelFromUrl(url: String) {
         if (downloadJob?.isActive == true) return
 

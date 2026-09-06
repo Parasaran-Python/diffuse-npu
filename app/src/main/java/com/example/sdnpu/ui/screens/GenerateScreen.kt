@@ -1,8 +1,11 @@
 package com.example.sdnpu.ui.screens
 
+import android.graphics.BitmapFactory
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Casino
@@ -10,6 +13,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import com.example.sdnpu.pipeline.GenerationParams
 import com.example.sdnpu.pipeline.PipelineState
@@ -24,7 +30,8 @@ fun GenerateScreen(
     pipelineState: PipelineState,
     localModels: List<String>,
     onParamsChange: (GenerationParams) -> Unit,
-    onGenerate: () -> Unit
+    onGenerate: () -> Unit,
+    onCancel: () -> Unit = {}
 ) {
     var showNegativePrompt by remember { mutableStateOf(false) }
     var modelExpanded by remember { mutableStateOf(false) }
@@ -213,14 +220,48 @@ fun GenerateScreen(
             }
         }
 
+        if (isProcessing) {
+            OutlinedButton(
+                onClick = onCancel,
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+            ) {
+                Text("Cancel Generation")
+            }
+        }
+
         when (pipelineState) {
             is PipelineState.Completed -> {
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-                    Text(
-                        text = "Success! Time: ${pipelineState.executionTimeMs} ms",
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
                         modifier = Modifier.padding(12.dp),
-                        style = MaterialTheme.typography.bodyMedium
-                    )
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "Success! Time: ${pipelineState.executionTimeMs} ms",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+
+                        if (!pipelineState.imagePath.isNullOrEmpty()) {
+                            val bitmap = remember(pipelineState.imagePath) {
+                                BitmapFactory.decodeFile(pipelineState.imagePath)?.asImageBitmap()
+                            }
+                            if (bitmap != null) {
+                                Image(
+                                    bitmap = bitmap,
+                                    contentDescription = "Generated Image",
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .aspectRatio(1f)
+                                        .clip(RoundedCornerShape(8.dp)),
+                                    contentScale = ContentScale.Fit
+                                )
+                            }
+                        }
+                    }
                 }
             }
             is PipelineState.Error -> {

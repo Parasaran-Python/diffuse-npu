@@ -96,7 +96,8 @@ Java_com_example_sdnpu_engine_SDEngine_nativeGenerateSd(
     jint steps,
     jfloat cfgScale,
     jlong seed,
-    jint sampler) {
+    jint sampler,
+    jobject jCallback) {
     if (!promptTokens || !negTokens) return nullptr;
 
     jsize promptLen = env->GetArrayLength(promptTokens);
@@ -111,6 +112,19 @@ Java_com_example_sdnpu_engine_SDEngine_nativeGenerateSd(
     std::vector<int32_t> negVec(negElems, negElems + negLen);
     env->ReleaseIntArrayElements(negTokens, negElems, JNI_ABORT);
 
+    std::function<void(int, int)> progressCb = nullptr;
+    if (jCallback) {
+        jclass cbClass = env->GetObjectClass(jCallback);
+        if (cbClass) {
+            jmethodID onStepMethod = env->GetMethodID(cbClass, "onStep", "(II)V");
+            if (onStepMethod) {
+                progressCb = [env, jCallback, onStepMethod](int step, int total) {
+                    env->CallVoidMethod(jCallback, onStepMethod, static_cast<jint>(step), static_cast<jint>(total));
+                };
+            }
+        }
+    }
+
     SamplerAlgorithm samplerAlgo = static_cast<SamplerAlgorithm>(sampler);
     std::vector<uint8_t> outBytes;
     bool ok = SdPipeline::getInstance().generate(
@@ -120,7 +134,7 @@ Java_com_example_sdnpu_engine_SDEngine_nativeGenerateSd(
         static_cast<float>(cfgScale),
         static_cast<int64_t>(seed),
         samplerAlgo,
-        nullptr,
+        progressCb,
         outBytes
     );
 
@@ -134,6 +148,13 @@ Java_com_example_sdnpu_engine_SDEngine_nativeGenerateSd(
     env->SetByteArrayRegion(result, 0, static_cast<jsize>(outBytes.size()),
                            reinterpret_cast<const jbyte*>(outBytes.data()));
     return result;
+}
+
+JNIEXPORT void JNICALL
+Java_com_example_sdnpu_engine_SDEngine_nativeCancelSd(
+    JNIEnv* /* env */,
+    jobject /* this */) {
+    SdPipeline::getInstance().requestCancel();
 }
 
 JNIEXPORT void JNICALL
