@@ -15,6 +15,10 @@ fun ModelDownloadDialog(
 ) {
     var serverUrl by remember { mutableStateOf("http://192.168.1.100:8080/models/dreamshaper_v8/") }
 
+    val isDownloading = status is DownloadStatus.FetchingManifest ||
+            status is DownloadStatus.DownloadingComponent ||
+            status is DownloadStatus.VerifyingChecksum
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Download Model") },
@@ -29,6 +33,10 @@ fun ModelDownloadDialog(
                 )
 
                 when (status) {
+                    is DownloadStatus.FetchingManifest -> {
+                        Text("Fetching manifest from server...")
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
                     is DownloadStatus.DownloadingComponent -> {
                         Text("Downloading ${status.componentName} (${status.progressPercent}%)")
                         LinearProgressIndicator(
@@ -52,7 +60,7 @@ fun ModelDownloadDialog(
         confirmButton = {
             Button(
                 onClick = { onStartDownload(serverUrl) },
-                enabled = status !is DownloadStatus.DownloadingComponent
+                enabled = !isDownloading
             ) {
                 Text("Download")
             }

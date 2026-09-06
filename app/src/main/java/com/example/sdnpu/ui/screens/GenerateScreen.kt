@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.sdnpu.pipeline.GenerationParams
 import com.example.sdnpu.pipeline.PipelineState
+import com.example.sdnpu.pipeline.SamplerType
 import com.example.sdnpu.pipeline.UpscaleMode
 import kotlin.random.Random
 
@@ -26,7 +27,17 @@ fun GenerateScreen(
     onGenerate: () -> Unit
 ) {
     var showNegativePrompt by remember { mutableStateOf(false) }
+    var modelExpanded by remember { mutableStateOf(false) }
+    var samplerExpanded by remember { mutableStateOf(false) }
     val scrollState = rememberScrollState()
+
+    val availableModels = remember(localModels) {
+        if (localModels.isEmpty()) listOf("dreamshaper_v8") else localModels
+    }
+
+    val isProcessing = pipelineState is PipelineState.LoadingModel ||
+            pipelineState is PipelineState.Generating ||
+            pipelineState is PipelineState.Upscaling
 
     Column(
         modifier = Modifier
@@ -60,14 +71,74 @@ fun GenerateScreen(
             )
         }
 
-        Text("Model: ${params.modelId}", style = MaterialTheme.typography.bodyMedium)
+        ExposedDropdownMenuBox(
+            expanded = modelExpanded,
+            onExpandedChange = { modelExpanded = !modelExpanded },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            OutlinedTextField(
+                value = params.modelId,
+                onValueChange = {},
+                readOnly = true,
+                label = { Text("Model") },
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelExpanded) },
+                modifier = Modifier
+                    .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                    .fillMaxWidth()
+            )
+            ExposedDropdownMenu(
+                expanded = modelExpanded,
+                onDismissRequest = { modelExpanded = false }
+            ) {
+                availableModels.forEach { model ->
+                    DropdownMenuItem(
+                        text = { Text(model) },
+                        onClick = {
+                            onParamsChange(params.copy(modelId = model))
+                            modelExpanded = false
+                        }
+                    )
+                }
+            }
+        }
+
+        ExposedDropdownMenuBox(
+            expanded = samplerExpanded,
+            onExpandedChange = { samplerExpanded = !samplerExpanded },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            OutlinedTextField(
+                value = params.sampler.displayName,
+                onValueChange = {},
+                readOnly = true,
+                label = { Text("Sampler") },
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = samplerExpanded) },
+                modifier = Modifier
+                    .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                    .fillMaxWidth()
+            )
+            ExposedDropdownMenu(
+                expanded = samplerExpanded,
+                onDismissRequest = { samplerExpanded = false }
+            ) {
+                SamplerType.entries.forEach { sampler ->
+                    DropdownMenuItem(
+                        text = { Text(sampler.displayName) },
+                        onClick = {
+                            onParamsChange(params.copy(sampler = sampler))
+                            samplerExpanded = false
+                        }
+                    )
+                }
+            }
+        }
 
         Text("Steps: ${params.steps}")
         Slider(
             value = params.steps.toFloat(),
             onValueChange = { onParamsChange(params.copy(steps = it.toInt())) },
             valueRange = 10f..50f,
-            steps = 40
+            steps = 39
         )
 
         Text("CFG Scale: ${"%.1f".format(params.cfgScale)}")
@@ -110,10 +181,15 @@ fun GenerateScreen(
 
         Button(
             onClick = onGenerate,
-            enabled = pipelineState !is PipelineState.Generating && pipelineState !is PipelineState.Upscaling,
+            enabled = !isProcessing,
             modifier = Modifier.fillMaxWidth().height(52.dp)
         ) {
             when (pipelineState) {
+                is PipelineState.LoadingModel -> {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Loading model ${pipelineState.modelId}...")
+                }
                 is PipelineState.Generating -> {
                     CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
                     Spacer(Modifier.width(8.dp))

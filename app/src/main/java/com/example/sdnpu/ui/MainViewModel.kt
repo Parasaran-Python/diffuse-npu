@@ -11,7 +11,11 @@ import com.example.sdnpu.model.ModelManager
 import com.example.sdnpu.pipeline.GenerationParams
 import com.example.sdnpu.pipeline.PipelineManager
 import com.example.sdnpu.pipeline.PipelineState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -19,48 +23,74 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val modelManager = ModelManager(File(application.filesDir, "models"))
     private val pipelineManager = PipelineManager()
 
-    val params = MutableStateFlow(GenerationParams(prompt = ""))
-    val pipelineState: MutableStateFlow<PipelineState> = MutableStateFlow(PipelineState.Idle)
-    val downloadStatus: MutableStateFlow<DownloadStatus> = MutableStateFlow(DownloadStatus.Idle)
-    val backendStatus = MutableStateFlow(
+    private var generationJob: Job? = null
+    private var downloadJob: Job? = null
+
+    private val _params = MutableStateFlow(GenerationParams(prompt = ""))
+    val params: StateFlow<GenerationParams> = _params.asStateFlow()
+
+    private val _pipelineState = MutableStateFlow<PipelineState>(PipelineState.Idle)
+    val pipelineState: StateFlow<PipelineState> = _pipelineState.asStateFlow()
+
+    private val _downloadStatus = MutableStateFlow<DownloadStatus>(DownloadStatus.Idle)
+    val downloadStatus: StateFlow<DownloadStatus> = _downloadStatus.asStateFlow()
+
+    private val _backendStatus = MutableStateFlow(
         BackendStatus("Reference CPU", false, true, "2.49.0.260730", "Ready")
     )
-    val localModels = MutableStateFlow<List<String>>(emptyList())
+    val backendStatus: StateFlow<BackendStatus> = _backendStatus.asStateFlow()
+
+    private val _localModels = MutableStateFlow<List<String>>(emptyList())
+    val localModels: StateFlow<List<String>> = _localModels.asStateFlow()
 
     init {
         refreshBackend()
         refreshLocalModels()
     }
 
+    fun updateParams(newParams: GenerationParams) {
+        _params.value = newParams
+    }
+
     fun refreshBackend() {
-        if (QnnNativeBridge.isLibraryLoaded()) {
-            QnnNativeBridge.nativeInitBackend(BackendType.HTP_NPU.id)
-            backendStatus.value = QnnNativeBridge.nativeGetBackendStatus()
+        viewModelScope.launch(Dispatchers.IO) {
+            if (QnnNativeBridge.isLibraryLoaded()) {
+                QnnNativeBridge.nativeInitBackend(BackendType.HTP_NPU.id)
+                val status = QnnNativeBridge.nativeGetBackendStatus()
+                _backendStatus.value = status
+            }
         }
     }
 
     fun refreshLocalModels() {
-        localModels.value = modelManager.listLocalModels()
+        viewModelScope.launch(Dispatchers.IO) {
+            val models = modelManager.listLocalModels()
+            _localModels.value = models
+        }
     }
 
     fun startGeneration() {
-        viewModelScope.launch {
-            pipelineManager.runGeneration(params.value).collect { state ->
-                pipelineState.value = state
+        if (generationJob?.isActive == true) return
+
+        generationJob = viewModelScope.launch {
+            pipelineManager.runGeneration(_params.value).collect { state ->
+                _pipelineState.value = state
             }
         }
     }
 
     fun downloadModelFromUrl(url: String) {
-        viewModelScope.launch {
+        if (downloadJob?.isActive == true) return
+
+        downloadJob = viewModelScope.launch {
             val manifestRes = modelManager.fetchManifest(url)
             if (manifestRes.isFailure) {
-                downloadStatus.value = DownloadStatus.Failed("Cannot fetch manifest: ${manifestRes.exceptionOrNull()?.message}")
+                _downloadStatus.value = DownloadStatus.Failed("Cannot fetch manifest: ${manifestRes.exceptionOrNull()?.message}")
                 return@launch
             }
             val manifest = manifestRes.getOrThrow()
             modelManager.downloadModel(manifest, url).collect { status ->
-                downloadStatus.value = status
+                _downloadStatus.value = status
                 if (status is DownloadStatus.Completed) {
                     refreshLocalModels()
                 }

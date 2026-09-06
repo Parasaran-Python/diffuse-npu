@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import com.example.sdnpu.ui.MainViewModel
 import com.example.sdnpu.ui.navigation.NavTab
@@ -24,8 +25,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             SdnpuTheme {
-                var currentTab by remember { mutableStateOf(NavTab.GENERATE) }
-                var showDownloadDialog by remember { mutableStateOf(false) }
+                var currentTab by rememberSaveable { mutableStateOf(NavTab.GENERATE) }
+                var showDownloadDialog by rememberSaveable { mutableStateOf(false) }
 
                 val params by viewModel.params.collectAsState()
                 val pipelineState by viewModel.pipelineState.collectAsState()
@@ -58,7 +59,7 @@ class MainActivity : ComponentActivity() {
                                 params = params,
                                 pipelineState = pipelineState,
                                 localModels = localModels,
-                                onParamsChange = { viewModel.params.value = it },
+                                onParamsChange = { viewModel.updateParams(it) },
                                 onGenerate = { viewModel.startGeneration() }
                             )
                             NavTab.GALLERY -> GalleryScreen()
