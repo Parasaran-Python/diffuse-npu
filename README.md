@@ -190,7 +190,7 @@ The Phase 3 super-resolution engine adds 2x (1024×1024) and 4x (2048×2048) on-
    - `EsrganPipeline` is implemented in `app/src/main/cpp/esrgan_pipeline.h/cpp` as a thread-safe singleton guarded by `std::mutex`.
    - Exposed through JNI in `app/src/main/cpp/jni_bridge.cpp` with zero memory leaks via guaranteed `ReleaseByteArrayElements` and `ReleaseStringUTFChars` RAII semantics:
      - `nativeLoadEsrganContext(modelPath, scale)`
-     - `nativeUpscaleEsrgan(inputRgba, inWidth, inHeight, outRgba, outWidth, outHeight)`
+     - `nativeUpscaleEsrgan(inputRgba, inWidth, inHeight, scale): ByteArray?`
      - `nativeUnloadEsrganContext()`
      - `nativeCancelEsrgan()`
    - Features tile-based processing capability to handle large outputs in bounded memory chunks.
