@@ -1,4 +1,5 @@
 #include "qnn_wrapper.h"
+#include "qnn_loader.h"
 #include <dlfcn.h>
 #include <chrono>
 #include <vector>
@@ -104,6 +105,14 @@ float QnnEngineWrapper::runBenchmarkDummy(int iterations) {
     asm volatile("" : : "r"(c.data()) : "memory");
     std::chrono::duration<float, std::milli> duration = end - start;
     return duration.count();
+}
+
+bool QnnEngineWrapper::setHtpPerformanceProfile(int profileOrdinal) {
+    return QnnDynamicLoader::getInstance().setHtpPerformanceProfile(profileOrdinal);
+}
+
+int QnnEngineWrapper::getHtpPerformanceProfile() const {
+    return QnnDynamicLoader::getInstance().getHtpPerformanceProfile();
 }
 
 void QnnEngineWrapper::release() {

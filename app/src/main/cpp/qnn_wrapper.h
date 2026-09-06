@@ -21,6 +21,8 @@ public:
     Qnn_ErrorHandle_t initialize(QnnBackendTarget target);
     QnnRuntimeInfo getRuntimeInfo() const;
     float runBenchmarkDummy(int iterations);
+    bool setHtpPerformanceProfile(int profileOrdinal);
+    int getHtpPerformanceProfile() const;
     void release();
 
 private:

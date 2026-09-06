@@ -20,6 +20,7 @@ add_library(
     sdnpu_engine
     SHARED
     qnn_wrapper.cpp
+    qnn_loader.cpp
     clip_encoder.cpp
     scheduler.cpp
     unet_denoiser.cpp

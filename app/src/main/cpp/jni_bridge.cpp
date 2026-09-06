@@ -1,5 +1,6 @@
 #include <jni.h>
 #include "qnn_wrapper.h"
+#include "qnn_loader.h"
 #include "sd_pipeline.h"
 #include "esrgan_pipeline.h"
 
@@ -71,6 +72,17 @@ Java_com_example_sdnpu_engine_QnnNativeBridge_nativeReleaseBackend(
     JNIEnv* env,
     jobject /* this */) {
     QnnEngineWrapper::getInstance().release();
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_example_sdnpu_engine_QnnNativeBridge_nativeSetHtpPerformanceProfile(
+    JNIEnv* env,
+    jobject /* this */,
+    jint profileOrdinal) {
+    bool success = QnnDynamicLoader::getInstance().setHtpPerformanceProfile(
+        static_cast<int>(profileOrdinal)
+    );
+    return success ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jboolean JNICALL
