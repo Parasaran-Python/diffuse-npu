@@ -21,6 +21,7 @@ object QnnNativeBridge {
     external fun nativeSetHtpPerformanceProfile(profileOrdinal: Int): Boolean
 
     fun setHtpPerformanceProfile(profileOrdinal: Int): Boolean {
+        if (profileOrdinal !in 0..3) return false
         return if (isLibraryLoaded()) nativeSetHtpPerformanceProfile(profileOrdinal) else true
     }
 

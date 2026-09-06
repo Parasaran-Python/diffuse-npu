@@ -58,5 +58,9 @@ class QuantizationConfigTest {
 
         val resultEnum = QnnNativeBridge.setHtpPerformanceProfile(HtpPowerProfile.BURST)
         assertTrue(resultEnum)
+
+        // Out of bounds ordinals should be rejected
+        assertFalse(QnnNativeBridge.setHtpPerformanceProfile(-1))
+        assertFalse(QnnNativeBridge.setHtpPerformanceProfile(4))
     }
 }
