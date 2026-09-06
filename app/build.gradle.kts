@@ -89,6 +89,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)
     implementation(libs.gson)
+    implementation(libs.androidx.datastore.preferences)
 
     debugImplementation(libs.compose.ui.tooling)
 
