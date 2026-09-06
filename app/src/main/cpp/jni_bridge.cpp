@@ -3,6 +3,64 @@
 #include "qnn_loader.h"
 #include "sd_pipeline.h"
 #include "esrgan_pipeline.h"
+#include <mutex>
+
+static JavaVM* gJavaVM = nullptr;
+static std::mutex gCallbackMutex;
+
+JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
+    gJavaVM = vm;
+    return JNI_VERSION_1_6;
+}
+
+static JNIEnv* attachCurrentThread() {
+    JNIEnv* env = nullptr;
+    if (gJavaVM->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {
+        if (gJavaVM->AttachCurrentThread(&env, nullptr) != JNI_OK) {
+            return nullptr;
+        }
+    }
+    return env;
+}
+
+static void detachCurrentThread() {
+    if (gJavaVM) {
+        gJavaVM->DetachCurrentThread();
+    }
+}
+
+static jobject makeGlobalRef(JNIEnv* env, jobject obj) {
+    return env->NewGlobalRef(obj);
+}
+
+static void deleteGlobalRef(JNIEnv* env, jobject obj) {
+    env->DeleteGlobalRef(obj);
+}
+
+struct CallbackContext {
+    jobject globalCallback;
+    jmethodID onStepMethod;
+    JNIEnv* creatorEnv;
+
+    CallbackContext(JNIEnv* env, jobject callback, jmethodID method)
+        : globalCallback(makeGlobalRef(env, callback)), onStepMethod(method), creatorEnv(env) {}
+
+    ~CallbackContext() {
+        JNIEnv* env = attachCurrentThread();
+        if (env && globalCallback) {
+            deleteGlobalRef(env, globalCallback);
+        }
+        detachCurrentThread();
+    }
+
+    void invoke(int step, int total) {
+        JNIEnv* env = attachCurrentThread();
+        if (env && globalCallback && onStepMethod) {
+            env->CallVoidMethod(globalCallback, onStepMethod, static_cast<jint>(step), static_cast<jint>(total));
+        }
+        detachCurrentThread();
+    }
+};
 
 extern "C" {
 
@@ -35,7 +93,6 @@ Java_com_example_sdnpu_engine_QnnNativeBridge_nativeGetBackendStatus(
         env->DeleteLocalRef(statusClass);
         return nullptr;
     }
-
 
     jstring backendName = env->NewStringUTF(info.backendName.c_str());
     jstring versionString = env->NewStringUTF(info.versionString.c_str());
@@ -125,16 +182,19 @@ Java_com_example_sdnpu_engine_SDEngine_nativeGenerateSd(
     std::vector<int32_t> negVec(negElems, negElems + negLen);
     env->ReleaseIntArrayElements(negTokens, negElems, JNI_ABORT);
 
+    CallbackContext* callbackContext = nullptr;
     std::function<void(int, int)> progressCb = nullptr;
     if (jCallback) {
         jclass cbClass = env->GetObjectClass(jCallback);
         if (cbClass) {
             jmethodID onStepMethod = env->GetMethodID(cbClass, "onStep", "(II)V");
             if (onStepMethod) {
-                progressCb = [env, jCallback, onStepMethod](int step, int total) {
-                    env->CallVoidMethod(jCallback, onStepMethod, static_cast<jint>(step), static_cast<jint>(total));
+                callbackContext = new CallbackContext(env, jCallback, onStepMethod);
+                progressCb = [callbackContext](int step, int total) {
+                    if (callbackContext) callbackContext->invoke(step, total);
                 };
             }
+            env->DeleteLocalRef(cbClass);
         }
     }
 
@@ -150,6 +210,11 @@ Java_com_example_sdnpu_engine_SDEngine_nativeGenerateSd(
         progressCb,
         outBytes
     );
+
+    if (callbackContext) {
+        delete callbackContext;
+        callbackContext = nullptr;
+    }
 
     if (!ok || outBytes.empty()) {
         return nullptr;

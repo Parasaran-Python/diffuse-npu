@@ -17,8 +17,9 @@ class MemoryDiagnosticsTest {
 
     @Test
     fun testIsMemorySafeForGeneration() {
+        // In JVM test environment, minimum required free is 512MB
         val isSafe = MemoryDiagnostics.isMemorySafeForGeneration(requiredFreeMb = 100L, context = null)
-        assertTrue("Modest 100MB requirement should be safe", isSafe)
+        assertTrue("Modest 100MB requirement should be safe (capped at 512MB)", isSafe)
 
         val isUnsafe = MemoryDiagnostics.isMemorySafeForGeneration(requiredFreeMb = 1_000_000L, context = null)
         assertFalse("Absurdly high 1TB requirement should be unsafe", isUnsafe)

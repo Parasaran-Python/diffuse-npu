@@ -17,6 +17,78 @@ data class ModelManifest(
     @SerializedName("scale") val scale: Int = 1
 ) {
     companion object {
+        fun dreamshaperV8Base(sha256Prefix: String = ""): ModelManifest = ModelManifest(
+            modelId = "dreamshaper_v8_base",
+            version = "1.0",
+            components = listOf(
+                ModelComponent(
+                    name = "clip_text_encoder",
+                    file = "clip_text_encoder.bin",
+                    sha256 = "$sha256Prefix.clip_text_encoder"
+                ),
+                ModelComponent(
+                    name = "unet",
+                    file = "unet.bin",
+                    sha256 = "$sha256Prefix.unet"
+                ),
+                ModelComponent(
+                    name = "vae_decoder",
+                    file = "vae_decoder.bin",
+                    sha256 = "$sha256Prefix.vae_decoder"
+                )
+            ),
+            qnnSdkVersion = "2.49.0",
+            targetHtp = "v73"
+        )
+
+        fun dreamshaperV8Anime(sha256Prefix: String = ""): ModelManifest = ModelManifest(
+            modelId = "dreamshaper_v8_anime",
+            version = "1.0",
+            components = listOf(
+                ModelComponent(
+                    name = "clip_text_encoder",
+                    file = "clip_text_encoder.bin",
+                    sha256 = "$sha256Prefix.clip_text_encoder"
+                ),
+                ModelComponent(
+                    name = "unet",
+                    file = "unet.bin",
+                    sha256 = "$sha256Prefix.unet"
+                ),
+                ModelComponent(
+                    name = "vae_decoder",
+                    file = "vae_decoder.bin",
+                    sha256 = "$sha256Prefix.vae_decoder"
+                )
+            ),
+            qnnSdkVersion = "2.49.0",
+            targetHtp = "v73"
+        )
+
+        fun dreamshaperV8Realistic(sha256Prefix: String = ""): ModelManifest = ModelManifest(
+            modelId = "dreamshaper_v8_realistic",
+            version = "1.0",
+            components = listOf(
+                ModelComponent(
+                    name = "clip_text_encoder",
+                    file = "clip_text_encoder.bin",
+                    sha256 = "$sha256Prefix.clip_text_encoder"
+                ),
+                ModelComponent(
+                    name = "unet",
+                    file = "unet.bin",
+                    sha256 = "$sha256Prefix.unet"
+                ),
+                ModelComponent(
+                    name = "vae_decoder",
+                    file = "vae_decoder.bin",
+                    sha256 = "$sha256Prefix.vae_decoder"
+                )
+            ),
+            qnnSdkVersion = "2.49.0",
+            targetHtp = "v73"
+        )
+
         fun realesrganX2Plus(sha256: String = ""): ModelManifest = ModelManifest(
             modelId = "realesrgan_x2plus",
             version = "1.0",
@@ -49,6 +121,10 @@ data class ModelManifest(
 
         fun realesrgan_x2plus(sha256: String = ""): ModelManifest = realesrganX2Plus(sha256)
         fun realesrgan_x4plus(sha256: String = ""): ModelManifest = realesrganX4Plus(sha256)
+
+        fun dreamshaper_v8_base(sha256Prefix: String = ""): ModelManifest = dreamshaperV8Base(sha256Prefix)
+        fun dreamshaper_v8_anime(sha256Prefix: String = ""): ModelManifest = dreamshaperV8Anime(sha256Prefix)
+        fun dreamshaper_v8_realistic(sha256Prefix: String = ""): ModelManifest = dreamshaperV8Realistic(sha256Prefix)
     }
 }
 
@@ -89,4 +165,3 @@ object ModelVariants {
 
     fun isSdModel(id: String): Boolean = !id.startsWith("realesrgan")
 }
-

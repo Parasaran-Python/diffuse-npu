@@ -20,7 +20,7 @@ class PipelineManagerTest {
 
         assertTrue(states.isNotEmpty())
         assertTrue("First state should be LoadingModel", states.first() is PipelineState.LoadingModel)
-        assertEquals("dreamshaper_v8", (states.first() as PipelineState.LoadingModel).modelId)
+        assertEquals("dreamshaper_v8_base", (states.first() as PipelineState.LoadingModel).modelId)
 
         val generatingStates = states.filterIsInstance<PipelineState.Generating>()
         assertEquals(10, generatingStates.size)
