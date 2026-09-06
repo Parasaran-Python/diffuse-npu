@@ -23,6 +23,7 @@ add_library(
     clip_encoder.cpp
     scheduler.cpp
     unet_denoiser.cpp
+    vae_decoder.cpp
     jni_bridge.cpp
 )
 
