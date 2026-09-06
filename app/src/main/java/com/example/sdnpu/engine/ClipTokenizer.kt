@@ -12,9 +12,10 @@ class ClipTokenizer(
         const val PAD_TOKEN = 49407
         const val MAX_LENGTH = 77
 
+        // Simplified pattern without UNICODE_CHARACTER_CLASS flag
+        // Matches contractions, words (ASCII letters), numbers, and punctuation
         private val PATTERN = Pattern.compile(
-            """'s|'t|'re|'ve|'m|'ll|'d|[\p{L}]+|[\p{N}]|[^\s\p{L}\p{N}]+""",
-            Pattern.UNICODE_CHARACTER_CLASS
+            """'s|'t|'re|'ve|'m|'ll|'d|[a-zA-Z]+|[0-9]+|[^\\sa-zA-Z0-9]+"""
         )
 
         val DEFAULT_VOCAB: Map<String, Int> by lazy {
@@ -105,14 +106,14 @@ class ClipTokenizer(
 
     private fun bpeEncode(text: String): List<String> {
         val words = mutableListOf<String>()
-        val matcher = PATTERN.matcher(text)
+        val matcher = PATTERN.matcher(text.lowercase())
         while (matcher.find()) {
             words.add(matcher.group())
         }
         val tokens = mutableListOf<String>()
 
         for (word in words) {
-            val wordWithPrefix = if (word.first().isLetterOrDigit()) "Ġ$word" else word
+            val wordWithPrefix = if (word.firstOrNull()?.isLetterOrDigit() == true) "Ġ$word" else word
             var tokenParts = wordWithPrefix.split("")
 
             for ((a, b) in merges) {
