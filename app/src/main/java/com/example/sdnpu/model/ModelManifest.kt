@@ -125,6 +125,20 @@ data class ModelManifest(
         fun dreamshaper_v8_base(sha256Prefix: String = ""): ModelManifest = dreamshaperV8Base(sha256Prefix)
         fun dreamshaper_v8_anime(sha256Prefix: String = ""): ModelManifest = dreamshaperV8Anime(sha256Prefix)
         fun dreamshaper_v8_realistic(sha256Prefix: String = ""): ModelManifest = dreamshaperV8Realistic(sha256Prefix)
+
+        fun sdturbo(sha256Prefix: String = ""): ModelManifest = ModelManifest(
+            modelId = "sdturbo",
+            version = "1.0",
+            components = listOf(
+                ModelComponent("text_encoder", "text_encoder.onnx", "$sha256Prefix.text_encoder"),
+                ModelComponent("unet", "unet.onnx", "$sha256Prefix.unet"),
+                ModelComponent("vae_decoder", "vae_decoder.onnx", "$sha256Prefix.vae_decoder")
+            ),
+            qnnSdkVersion = "ort-1.20",
+            targetHtp = "v73"
+        )
+
+        fun sdTurbo(sha256Prefix: String = ""): ModelManifest = sdturbo(sha256Prefix)
     }
 }
 
@@ -158,6 +172,11 @@ object ModelVariants {
             id = "dreamshaper_v8_realistic",
             name = "DreamShaper v8 (Realistic)",
             description = "Enhanced for lifelike human faces and natural scenes"
+        ),
+        ModelVariant(
+            id = "sdturbo",
+            name = "SD-Turbo (ONNX / LCM)",
+            description = "Fast 1-4 step inference with ONNX Runtime & QNN NPU"
         )
     )
 

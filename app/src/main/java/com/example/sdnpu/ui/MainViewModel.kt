@@ -71,18 +71,23 @@ class MainViewModel(
     },
     private val notificationManager: GenerationNotificationManager = GenerationNotificationManager(application),
     private val pipelineManager: PipelineManager = PipelineManager(
-        modelsDir = if (application != null) File(application.filesDir, "models")
-        else File(System.getProperty("java.io.tmpdir"), "models"),
+        modelsDir = if (application != null) {
+            application.getExternalFilesDir(null)?.let { File(it, "models") } ?: File(application.filesDir, "models")
+        } else File(System.getProperty("java.io.tmpdir"), "models"),
         outputDir = if (application != null) File(application.filesDir, "generations")
         else File(System.getProperty("java.io.tmpdir"), "generations"),
-        historyRepository = historyRepository
+        historyRepository = historyRepository,
+        secondaryModelsDir = if (application != null) File(application.filesDir, "models") else null
     )
 ) : ViewModel() {
 
     // Secondary constructor for AndroidViewModelFactory compatibility
     constructor(application: Application) : this(
         application = application,
-        modelManager = ModelManager(File(application.filesDir, "models")),
+        modelManager = ModelManager(
+            baseStorageDir = application.getExternalFilesDir(null)?.let { File(it, "models") } ?: File(application.filesDir, "models"),
+            secondaryStorageDir = File(application.filesDir, "models")
+        ),
         historyRepository = HistoryRepository.getInstance(application),
         settingsRepository = SettingsRepository.getInstance(application),
         deviceMonitor = DeviceMonitor.getInstance(application),

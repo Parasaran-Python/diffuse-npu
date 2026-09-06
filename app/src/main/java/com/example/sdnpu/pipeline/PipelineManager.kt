@@ -22,22 +22,39 @@ import java.util.zip.Deflater
 class PipelineManager(
     private val modelsDir: File = File(System.getProperty("java.io.tmpdir"), "models"),
     private val outputDir: File = File(System.getProperty("java.io.tmpdir"), "generations"),
-    var historyRepository: HistoryRepository? = null
+    var historyRepository: HistoryRepository? = null,
+    private val secondaryModelsDir: File? = null
 ) {
     fun cancel() {
         SDEngine.cancel()
         ESRGANEngine.cancel()
     }
 
-    fun validateModelAvailability(modelId: String, modelsDir: File = this.modelsDir): Result<Unit> {
-        val modelDir = File(modelsDir, modelId)
+    fun resolveModelDirectory(modelId: String, preferredBase: File = this.modelsDir): File {
         val requiredFiles = listOf("text_encoder.onnx", "unet.onnx", "vae_decoder.onnx")
-        val missing = requiredFiles.filter { !File(modelDir, it).exists() }
-        return if (missing.isEmpty()) {
-            Result.success(Unit)
-        } else {
-            Result.failure(IllegalStateException("Model '$modelId' components not found (missing: ${missing.joinToString(", ")}). Please download in Settings or sideload via ADB."))
+        val dirs = listOfNotNull(preferredBase, if (preferredBase == this.modelsDir) secondaryModelsDir else null)
+        for (dir in dirs) {
+            val mDir = File(dir, modelId)
+            if (requiredFiles.all { File(mDir, it).exists() }) {
+                return dir
+            }
         }
+        return preferredBase
+    }
+
+    fun validateModelAvailability(modelId: String, modelsDir: File = this.modelsDir): Result<Unit> {
+        val dirsToTry = listOfNotNull(modelsDir, if (modelsDir == this.modelsDir) secondaryModelsDir else null)
+        val requiredFiles = listOf("text_encoder.onnx", "unet.onnx", "vae_decoder.onnx")
+        var bestMissing = listOf<String>()
+        for (dir in dirsToTry) {
+            val modelDir = File(dir, modelId)
+            val missing = requiredFiles.filter { !File(modelDir, it).exists() }
+            if (missing.isEmpty()) {
+                return Result.success(Unit)
+            }
+            bestMissing = missing
+        }
+        return Result.failure(IllegalStateException("Model '$modelId' components not found (missing: ${bestMissing.joinToString(", ")}). Please download in Settings or sideload via ADB."))
     }
 
     fun runGeneration(params: GenerationParams): Flow<PipelineState> = channelFlow {
@@ -62,6 +79,7 @@ class PipelineManager(
             val startTime = System.currentTimeMillis()
             send(PipelineState.LoadingModel(params.modelId))
 
+            val effectiveModelsDir = resolveModelDirectory(params.modelId, modelsDir)
             val baseSeed = params.seed ?: System.currentTimeMillis()
             for (batchIdx in 0 until params.batchCount) {
                 val batchSeed = baseSeed + batchIdx
@@ -70,7 +88,7 @@ class PipelineManager(
                 // Generate raw RGBA image bytes on IO dispatcher with direct step progress plumbing
                 // Note: SD native context is strictly released before this call returns
                 val imageBytes = withContext(Dispatchers.IO) {
-                    SDEngine.generate(batchParams, modelsDir) { step, total ->
+                    SDEngine.generate(batchParams, effectiveModelsDir) { step, total ->
                         val msg = if (params.batchCount > 1) {
                             "Batch ${batchIdx + 1}/${params.batchCount} - Denoising step $step/$total"
                         } else {
@@ -82,7 +100,13 @@ class PipelineManager(
 
                 if (params.upscaleMode != UpscaleMode.OFF) {
                     val scale = if (params.upscaleMode == UpscaleMode.X2) 2 else 4
-                    val esrganModelDir = File(modelsDir, "realesrgan_x${scale}plus")
+                    val esrganModelDir = if (File(File(effectiveModelsDir, "realesrgan_x${scale}plus"), "model.bin").exists()) {
+                        File(effectiveModelsDir, "realesrgan_x${scale}plus")
+                    } else if (secondaryModelsDir != null && File(File(secondaryModelsDir, "realesrgan_x${scale}plus"), "model.bin").exists()) {
+                        File(secondaryModelsDir, "realesrgan_x${scale}plus")
+                    } else {
+                        File(effectiveModelsDir, "realesrgan_x${scale}plus")
+                    }
                     send(PipelineState.Upscaling(progress = 0f, scale = scale))
 
                     var lastProgressPercent = 0
