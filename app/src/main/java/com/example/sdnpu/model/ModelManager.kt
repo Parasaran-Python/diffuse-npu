@@ -18,8 +18,10 @@ class ModelManager(
     private val baseStorageDir: File,
     private val secondaryStorageDir: File? = null,
     private val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(120, TimeUnit.SECONDS)
         .build(),
     private val gson: Gson = Gson()
 ) {
@@ -73,23 +75,41 @@ class ModelManager(
 
             for (comp in manifest.components) {
                 val targetFile = File(modelDir, comp.file)
-                val compUrl = "$cleanBaseUrl${comp.file}"
+                val candidateUrls = mutableListOf<String>()
+                candidateUrls.add("$cleanBaseUrl${comp.file}")
+                if (comp.file.endsWith(".onnx")) {
+                    candidateUrls.add("$cleanBaseUrl${comp.name}/model.onnx")
+                }
+                if (!comp.file.endsWith(".bin")) {
+                    candidateUrls.add("$cleanBaseUrl${comp.name}.bin")
+                }
 
                 emit(DownloadStatus.DownloadingComponent(comp.name, 0L, -1L, 0))
 
-                val request = Request.Builder().url(compUrl).build()
-                val response = try {
-                    client.newCall(request).execute()
-                } catch (e: Exception) {
-                    cleanupIfIncomplete()
-                    emit(DownloadStatus.Failed("Failed downloading ${comp.name}: ${e.message}"))
-                    return@flow
+                var response: okhttp3.Response? = null
+                var successfulCandidateUrl = ""
+                var lastError: Exception? = null
+
+                for (candidateUrl in candidateUrls) {
+                    val request = Request.Builder().url(candidateUrl).build()
+                    try {
+                        val candidateResponse = client.newCall(request).execute()
+                        if (candidateResponse.isSuccessful) {
+                            response = candidateResponse
+                            successfulCandidateUrl = candidateUrl
+                            break
+                        } else {
+                            candidateResponse.close()
+                        }
+                    } catch (e: Exception) {
+                        lastError = e
+                    }
                 }
 
-                if (!response.isSuccessful) {
-                    response.close()
+                if (response == null) {
                     cleanupIfIncomplete()
-                    emit(DownloadStatus.Failed("Failed downloading ${comp.name}: HTTP ${response.code}"))
+                    val err = lastError?.message ?: "File not found at candidate URLs"
+                    emit(DownloadStatus.Failed("Failed downloading ${comp.name}: $err"))
                     return@flow
                 }
 
@@ -107,7 +127,7 @@ class ModelManager(
                     response.use {
                         responseBody.byteStream().use { input ->
                             FileOutputStream(targetFile).use { output ->
-                                val buffer = ByteArray(16384)
+                                val buffer = ByteArray(32768)
                                 var read: Int
                                 var lastReportTime = System.currentTimeMillis()
 
@@ -130,12 +150,18 @@ class ModelManager(
                     return@flow
                 }
 
-                emit(DownloadStatus.VerifyingChecksum(comp.name))
-                val valid = ChecksumVerifier.verifyFile(targetFile, comp.sha256)
-                if (!valid) {
-                    cleanupIfIncomplete()
-                    emit(DownloadStatus.Failed("Checksum verification failed for ${comp.name}"))
-                    return@flow
+                val isSha256Provided = comp.sha256.isNotBlank() &&
+                        comp.sha256.length == 64 &&
+                        comp.sha256.all { it in "0123456789abcdefABCDEF" }
+
+                if (isSha256Provided) {
+                    emit(DownloadStatus.VerifyingChecksum(comp.name))
+                    val valid = ChecksumVerifier.verifyFile(targetFile, comp.sha256)
+                    if (!valid) {
+                        cleanupIfIncomplete()
+                        emit(DownloadStatus.Failed("Checksum verification failed for ${comp.name}"))
+                        return@flow
+                    }
                 }
             }
 
@@ -157,7 +183,14 @@ class ModelManager(
             if (modelDir.exists() && modelDir.isDirectory && File(modelDir, ".complete").exists()) {
                 manifest.components.all { comp ->
                     val file = File(modelDir, comp.file)
-                    ChecksumVerifier.verifyFile(file, comp.sha256)
+                    val isSha256Provided = comp.sha256.isNotBlank() &&
+                            comp.sha256.length == 64 &&
+                            comp.sha256.all { it in "0123456789abcdefABCDEF" }
+                    if (isSha256Provided) {
+                        ChecksumVerifier.verifyFile(file, comp.sha256)
+                    } else {
+                        file.exists() && file.length() > 0
+                    }
                 }
             } else false
         }

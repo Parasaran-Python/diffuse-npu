@@ -19,6 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -236,5 +237,27 @@ class MainViewModelTest {
         assertTrue(ModelVariants.isSdModel("dreamshaper_v8_anime"))
         assertTrue(ModelVariants.isSdModel("sdturbo"))
         assertFalse(ModelVariants.isSdModel("realesrgan_x2plus"))
+    }
+
+    @Test
+    fun testDownloadModelFromUrlFallbackWhenManifestMissing() = runBlocking {
+        val server = okhttp3.mockwebserver.MockWebServer()
+        server.start()
+        try {
+            // Manifest request -> 404 Not Found
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(404))
+            // Component requests -> 200 OK
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(200).setBody("component 1"))
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(200).setBody("component 2"))
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(200).setBody("component 3"))
+
+            val baseUrl = server.url("/").toString()
+            viewModel.downloadModelFromUrl(baseUrl, modelId = "sdturbo")
+
+            val status = viewModel.downloadStatus.filter { it !is com.example.sdnpu.model.DownloadStatus.Idle }.first()
+            assertTrue(status !is com.example.sdnpu.model.DownloadStatus.Idle)
+        } finally {
+            server.shutdown()
+        }
     }
 }

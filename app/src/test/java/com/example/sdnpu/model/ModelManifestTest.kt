@@ -124,5 +124,21 @@ class ModelManifestTest {
         assertEquals("SD-Turbo (ONNX / LCM)", sdturboVariant?.name)
         assertTrue(ModelVariants.isSdModel("sdturbo"))
     }
+
+    @Test
+    fun testModelDownloadPresets() {
+        val presets = ModelDownloadPresets.getPresets()
+        assertEquals(3, presets.size)
+
+        val sdturboPreset = presets.find { it.id == "sdturbo" }
+        assertNotNull(sdturboPreset)
+        assertEquals("SD-Turbo (ONNX / LCM)", sdturboPreset?.name)
+        assertTrue(sdturboPreset?.defaultUrl?.contains("Heliosoph/sd-turbo-onnx") == true)
+        assertTrue(sdturboPreset?.isDefault == true)
+
+        val customPreset = presets.find { it.id == "custom" }
+        assertNotNull(customPreset)
+        assertEquals("", customPreset?.defaultUrl)
+    }
 }
 

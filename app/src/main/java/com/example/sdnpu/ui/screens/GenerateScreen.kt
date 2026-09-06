@@ -42,7 +42,8 @@ fun GenerateScreen(
     thermalWarningEnabled: Boolean = true,
     onParamsChange: (GenerationParams) -> Unit,
     onGenerate: () -> Unit,
-    onCancel: () -> Unit = {}
+    onCancel: () -> Unit = {},
+    onOpenDownloadDialog: ((String) -> Unit)? = null
 ) {
     var showNegativePrompt by remember { mutableStateOf(false) }
     var modelExpanded by remember { mutableStateOf(false) }
@@ -391,21 +392,37 @@ fun GenerateScreen(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Row(
-                    modifier = Modifier.padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        Icons.Default.Warning,
-                        contentDescription = "Model Missing",
-                        tint = MaterialTheme.colorScheme.error
-                    )
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Warning,
+                            contentDescription = "Model Missing",
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                        Text(
+                            text = "Model '${params.modelId}' is not installed.",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Model '${params.modelId}' is not installed. Please download in Settings or sideload via ADB.",
+                        text = "Download over Wi-Fi directly in-app or sideload via ADB.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onErrorContainer
                     )
+                    if (onOpenDownloadDialog != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = { onOpenDownloadDialog(params.modelId) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Download Model (${params.modelId})")
+                        }
+                    }
                 }
             }
         }
