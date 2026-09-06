@@ -25,6 +25,7 @@ add_library(
     unet_denoiser.cpp
     vae_decoder.cpp
     sd_pipeline.cpp
+    esrgan_pipeline.cpp
     jni_bridge.cpp
 )
 
