@@ -66,11 +66,37 @@ class ModelDownloadService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val action = intent?.action ?: return START_NOT_STICKY
+        val action = intent?.action ?: run {
+            val shutdownNotification = buildNotification(
+                title = "Model Download",
+                content = "Service started without action",
+                progress = 0,
+                indeterminate = false,
+                isOngoing = false,
+                actions = emptyList()
+            )
+            startServiceForeground(shutdownNotification)
+            stopServiceForeground(true)
+            stopSelf()
+            return START_NOT_STICKY
+        }
 
         when (action) {
             ACTION_START -> {
-                val url = intent.getStringExtra(EXTRA_URL) ?: return START_NOT_STICKY
+                val url = intent.getStringExtra(EXTRA_URL) ?: run {
+                    val shutdownNotification = buildNotification(
+                        title = "Model Download",
+                        content = "Missing download URL",
+                        progress = 0,
+                        indeterminate = false,
+                        isOngoing = false,
+                        actions = emptyList()
+                    )
+                    startServiceForeground(shutdownNotification)
+                    stopServiceForeground(true)
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
                 val modelId = intent.getStringExtra(EXTRA_MODEL_ID)
                 handleStart(url, modelId)
             }
@@ -167,6 +193,7 @@ class ModelDownloadService : Service() {
     }
 
     private fun handleStart(url: String, modelId: String?) {
+        modelManager.resetPause()
         currentUrl = url
         currentModelId = modelId ?: run {
             when {
@@ -228,6 +255,16 @@ class ModelDownloadService : Service() {
 
         val resumeUrl = currentUrl
         if (resumeUrl == null) {
+            val shutdownNotification = buildNotification(
+                title = "Model Download",
+                content = "No active download to resume",
+                progress = 0,
+                indeterminate = false,
+                isOngoing = false,
+                actions = emptyList()
+            )
+            startServiceForeground(shutdownNotification)
+            stopServiceForeground(true)
             stopSelf()
             return
         }
@@ -542,9 +579,11 @@ class ModelDownloadService : Service() {
             context.startService(intent)
         }
 
-        fun resumeDownload(context: Context) {
+        fun resumeDownload(context: Context, url: String? = null, modelId: String? = null) {
             val intent = Intent(context, ModelDownloadService::class.java).apply {
                 action = ACTION_RESUME
+                if (url != null) putExtra(EXTRA_URL, url)
+                if (modelId != null) putExtra(EXTRA_MODEL_ID, modelId)
             }
             ContextCompat.startForegroundService(context, intent)
         }
