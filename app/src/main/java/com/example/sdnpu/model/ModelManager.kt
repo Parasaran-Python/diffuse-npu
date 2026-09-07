@@ -36,6 +36,24 @@ class ModelManager(
         }
     }
 
+    @Volatile
+    var isPaused: Boolean = false
+
+    @Volatile
+    private var activeCall: okhttp3.Call? = null
+
+    fun pauseDownload() {
+        isPaused = true
+        try {
+            activeCall?.cancel()
+        } catch (_: Exception) {}
+    }
+
+    fun resumeDownload(manifest: ModelManifest, baseUrl: String): Flow<DownloadStatus> {
+        isPaused = false
+        return downloadModel(manifest, baseUrl)
+    }
+
     suspend fun fetchManifest(baseUrl: String): Result<ModelManifest> = withContext(Dispatchers.IO) {
         val cleanBase = baseUrl.trim().removeSuffix("/manifest.json").removeSuffix("/")
         val url = "$cleanBase/manifest.json"
@@ -60,8 +78,12 @@ class ModelManager(
         val modelDir = File(baseStorageDir, manifest.modelId)
         val completeFile = File(modelDir, ".complete")
         var currentPartFile: File? = null
+        var currentComponentName = ""
 
         fun cleanupIfIncomplete() {
+            if (isPaused) {
+                return
+            }
             try {
                 currentPartFile?.let { if (it.exists()) it.delete() }
                 if (!completeFile.exists() && modelDir.exists()) {
@@ -86,9 +108,16 @@ class ModelManager(
             manifestFile.writeText(gson.toJson(manifest))
 
             for (comp in manifest.components) {
+                currentComponentName = comp.name
                 val targetFile = File(modelDir, comp.file)
                 val partFile = File(modelDir, "${comp.file}.part")
                 currentPartFile = partFile
+
+                if (isPaused) {
+                    val currentBytes = if (partFile.exists()) partFile.length() else 0L
+                    emit(DownloadStatus.Paused(manifest.modelId, comp.name, currentBytes, -1L, 0))
+                    return@flow
+                }
 
                 val isSha256Provided = comp.sha256.isNotBlank() &&
                         comp.sha256.length == 64 &&
@@ -111,17 +140,44 @@ class ModelManager(
                     candidateUrls.add("$cleanBaseUrl${comp.name}.bin")
                 }
 
-                emit(DownloadStatus.DownloadingComponent(comp.name, 0L, -1L, 0))
+                var existingBytes = if (partFile.exists()) partFile.length() else 0L
+                emit(DownloadStatus.DownloadingComponent(comp.name, existingBytes, -1L, 0))
 
                 var response: okhttp3.Response? = null
                 var successfulCandidateUrl = ""
                 var lastError: Exception? = null
 
                 for (candidateUrl in candidateUrls) {
-                    val request = Request.Builder().url(candidateUrl).build()
+                    if (isPaused) break
+
+                    val requestBuilder = Request.Builder().url(candidateUrl)
+                    if (existingBytes > 0L) {
+                        requestBuilder.header("Range", "bytes=$existingBytes-")
+                    }
+                    val request = requestBuilder.build()
                     try {
-                        val candidateResponse = client.newCall(request).execute()
-                        if (candidateResponse.isSuccessful) {
+                        val call = client.newCall(request)
+                        activeCall = call
+                        val candidateResponse = call.execute()
+                        if (candidateResponse.code == 416 && existingBytes > 0L) {
+                            // Range Not Satisfiable: delete .part and retry from byte 0
+                            candidateResponse.close()
+                            if (partFile.exists()) {
+                                partFile.delete()
+                            }
+                            existingBytes = 0L
+                            val retryRequest = Request.Builder().url(candidateUrl).build()
+                            val retryCall = client.newCall(retryRequest)
+                            activeCall = retryCall
+                            val retryResponse = retryCall.execute()
+                            if (retryResponse.isSuccessful) {
+                                response = retryResponse
+                                successfulCandidateUrl = candidateUrl
+                                break
+                            } else {
+                                retryResponse.close()
+                            }
+                        } else if (candidateResponse.isSuccessful) {
                             response = candidateResponse
                             successfulCandidateUrl = candidateUrl
                             break
@@ -133,6 +189,14 @@ class ModelManager(
                     }
                 }
 
+                if (isPaused) {
+                    response?.close()
+                    activeCall = null
+                    val currentBytes = if (partFile.exists()) partFile.length() else existingBytes
+                    emit(DownloadStatus.Paused(manifest.modelId, comp.name, currentBytes, -1L, 0))
+                    return@flow
+                }
+
                 if (response == null) {
                     cleanupIfIncomplete()
                     val err = lastError?.message ?: "File not found at candidate URLs"
@@ -142,38 +206,60 @@ class ModelManager(
 
                 val responseBody = response.body ?: run {
                     response.close()
+                    activeCall = null
                     cleanupIfIncomplete()
                     emit(DownloadStatus.Failed("Empty response body for ${comp.name}"))
                     return@flow
                 }
 
-                val totalBytes = responseBody.contentLength()
+                val isAppend = response.code == 206
+                val resumeOffset = if (isAppend) partFile.length() else 0L
+                val totalBytes = if (isAppend) {
+                    if (responseBody.contentLength() >= 0) {
+                        resumeOffset + responseBody.contentLength()
+                    } else {
+                        val rangeHeader = response.header("Content-Range")
+                        val parsedTotal = rangeHeader?.substringAfterLast('/')?.trim()?.toLongOrNull()
+                        parsedTotal ?: -1L
+                    }
+                } else {
+                    responseBody.contentLength()
+                }
 
                 // If file already exists and length matches content length, skip re-downloading
                 if (!isSha256Provided && totalBytes > 0 && targetFile.exists() && targetFile.length() == totalBytes) {
                     response.close()
+                    activeCall = null
                     emit(DownloadStatus.DownloadingComponent(comp.name, totalBytes, totalBytes, 100))
                     continue
                 }
 
-                var downloadedBytes = 0L
+                var downloadedBytes = resumeOffset
 
                 try {
                     response.use {
                         responseBody.byteStream().use { input ->
-                            BufferedOutputStream(FileOutputStream(partFile), 262144).use { output ->
+                            BufferedOutputStream(FileOutputStream(partFile, isAppend), 262144).use { output ->
                                 val buffer = ByteArray(262144) // 256 KB buffer for high-throughput mobile flash I/O
                                 var read: Int
                                 var lastReportTime = System.currentTimeMillis()
+
+                                if (downloadedBytes > 0) {
+                                    val initialPercent = if (totalBytes > 0) ((downloadedBytes * 100) / totalBytes).toInt().coerceIn(0, 100) else 0
+                                    emit(DownloadStatus.DownloadingComponent(comp.name, downloadedBytes, totalBytes, initialPercent))
+                                }
 
                                 while (input.read(buffer).also { read = it } != -1) {
                                     output.write(buffer, 0, read)
                                     downloadedBytes += read
                                     val now = System.currentTimeMillis()
                                     if (now - lastReportTime > 200 || downloadedBytes == totalBytes) {
-                                        val percent = if (totalBytes > 0) ((downloadedBytes * 100) / totalBytes).toInt() else 0
+                                        val percent = if (totalBytes > 0) ((downloadedBytes * 100) / totalBytes).toInt().coerceIn(0, 100) else 0
                                         emit(DownloadStatus.DownloadingComponent(comp.name, downloadedBytes, totalBytes, percent))
                                         lastReportTime = now
+                                    }
+                                    if (isPaused) {
+                                        break
                                     }
                                 }
                                 output.flush()
@@ -181,8 +267,24 @@ class ModelManager(
                         }
                     }
                 } catch (e: Exception) {
+                    activeCall = null
+                    if (isPaused) {
+                        val currentBytes = if (partFile.exists()) partFile.length() else downloadedBytes
+                        val percent = if (totalBytes > 0) ((currentBytes * 100) / totalBytes).toInt().coerceIn(0, 100) else 0
+                        emit(DownloadStatus.Paused(manifest.modelId, comp.name, currentBytes, totalBytes, percent))
+                        return@flow
+                    }
                     cleanupIfIncomplete()
                     emit(DownloadStatus.Failed("Failed reading ${comp.name}: ${e.message}"))
+                    return@flow
+                } finally {
+                    activeCall = null
+                }
+
+                if (isPaused) {
+                    val currentBytes = if (partFile.exists()) partFile.length() else downloadedBytes
+                    val percent = if (totalBytes > 0) ((currentBytes * 100) / totalBytes).toInt().coerceIn(0, 100) else 0
+                    emit(DownloadStatus.Paused(manifest.modelId, comp.name, currentBytes, totalBytes, percent))
                     return@flow
                 }
 
@@ -208,14 +310,22 @@ class ModelManager(
                 currentPartFile = null
             }
 
+            isPaused = false
             completeFile.createNewFile()
             emit(DownloadStatus.Completed(manifest.modelId, modelDir.absolutePath))
         } catch (e: CancellationException) {
-            cleanupIfIncomplete()
+            if (!isPaused) {
+                cleanupIfIncomplete()
+            }
             throw e
         } catch (e: Exception) {
-            cleanupIfIncomplete()
-            emit(DownloadStatus.Failed("Download failed: ${e.message}"))
+            if (isPaused) {
+                val currentBytes = currentPartFile?.let { if (it.exists()) it.length() else 0L } ?: 0L
+                emit(DownloadStatus.Paused(manifest.modelId, currentComponentName, currentBytes, -1L, 0))
+            } else {
+                cleanupIfIncomplete()
+                emit(DownloadStatus.Failed("Download failed: ${e.message}"))
+            }
         }
     }.flowOn(Dispatchers.IO)
 
