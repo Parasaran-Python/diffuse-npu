@@ -23,7 +23,8 @@ class PipelineManager(
     private val modelsDir: File = File(System.getProperty("java.io.tmpdir"), "models"),
     private val outputDir: File = File(System.getProperty("java.io.tmpdir"), "generations"),
     var historyRepository: HistoryRepository? = null,
-    private val secondaryModelsDir: File? = null
+    private val secondaryModelsDir: File? = null,
+    private val fallbackModelsDir: File? = null
 ) {
     fun cancel() {
         SDEngine.cancel()
@@ -32,7 +33,11 @@ class PipelineManager(
 
     fun resolveModelDirectory(modelId: String, preferredBase: File = this.modelsDir): File {
         val requiredComponents = listOf("text_encoder", "unet", "vae_decoder")
-        val dirs = listOfNotNull(preferredBase, if (preferredBase == this.modelsDir) secondaryModelsDir else null)
+        val dirs = listOfNotNull(
+            preferredBase,
+            if (preferredBase == this.modelsDir) secondaryModelsDir else null,
+            if (preferredBase == this.modelsDir) fallbackModelsDir else null
+        ).distinct()
         for (dir in dirs) {
             val mDir = File(dir, modelId)
             val allPresent = requiredComponents.all { comp ->
@@ -46,7 +51,11 @@ class PipelineManager(
     }
 
     fun validateModelAvailability(modelId: String, modelsDir: File = this.modelsDir): Result<Unit> {
-        val dirsToTry = listOfNotNull(modelsDir, if (modelsDir == this.modelsDir) secondaryModelsDir else null)
+        val dirsToTry = listOfNotNull(
+            modelsDir,
+            if (modelsDir == this.modelsDir) secondaryModelsDir else null,
+            if (modelsDir == this.modelsDir) fallbackModelsDir else null
+        ).distinct()
         val requiredComponents = listOf("text_encoder", "unet", "vae_decoder")
         var bestMissing = listOf<String>()
         for (dir in dirsToTry) {
@@ -113,7 +122,11 @@ class PipelineManager(
 
                 if (params.upscaleMode != UpscaleMode.OFF) {
                     val scale = if (params.upscaleMode == UpscaleMode.X2) 2 else 4
-                    val esrganModelDir = listOfNotNull(modelsDir, secondaryModelsDir)
+                    val esrganModelDir = listOfNotNull(
+                        modelsDir,
+                        secondaryModelsDir,
+                        fallbackModelsDir
+                    ).distinct()
                         .firstOrNull { File(File(it, "realesrgan_x${scale}plus"), "model.bin").exists() }
                         ?.let { File(it, "realesrgan_x${scale}plus") }
                         ?: File(effectiveModelsDir, "realesrgan_x${scale}plus")

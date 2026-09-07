@@ -299,9 +299,10 @@ object OnnxDiffusionEngine {
         onStep: ((Int, Int) -> Unit)? = null,
         env: OrtEnvironment = OrtEnvironment.getEnvironment()
     ): FloatArray {
+        val schedule = SdTurboScheduler.getSchedule(steps)
         val currentLatents = latents.clone()
         val tempLatents = FloatArray(currentLatents.size)
-        val numSteps = steps.coerceIn(1, 50)
+        val numSteps = schedule.timesteps.size
 
         val hiddenName = unetSession.inputNames.firstOrNull {
             it.contains("hidden") || it.contains("context")
@@ -320,9 +321,11 @@ object OnnxDiffusionEngine {
                     throw CancellationException("Generation cancelled")
                 }
 
-                val sigma = 1.0f - (stepIndex.toFloat() / numSteps.toFloat())
-                val nextSigma = 1.0f - ((stepIndex + 1).toFloat() / numSteps.toFloat())
-                val timestepVal = 999.0f * sigma
+                val sigma = schedule.sigmas[stepIndex]
+                val nextSigma = schedule.sigmas[stepIndex + 1]
+                val timestepVal = schedule.timesteps[stepIndex]
+
+                val scaledLatents = schedule.scaleModelInput(currentLatents, stepIndex)
 
                 val sampleName = unetSession.inputNames.firstOrNull {
                     it.contains("sample") || it.contains("latent")
@@ -331,7 +334,7 @@ object OnnxDiffusionEngine {
                 val sampleTensor = createFloatTensor(
                     env,
                     sampleInfo?.type,
-                    currentLatents,
+                    scaledLatents,
                     longArrayOf(1, 4, 64, 64)
                 )
 
@@ -360,7 +363,7 @@ object OnnxDiffusionEngine {
                         val noisePredTensor = (res.get(0) as? OnnxTensor) ?: (res.iterator().next().value as OnnxTensor)
                         val noisePred = extractFloatsFromTensor(noisePredTensor)
 
-                        eulerStep(currentLatents, noisePred, sigma, nextSigma, tempLatents)
+                        schedule.step(currentLatents, noisePred, stepIndex, tempLatents)
                         System.arraycopy(tempLatents, 0, currentLatents, 0, currentLatents.size)
                     }
                 } finally {
@@ -458,7 +461,9 @@ object OnnxDiffusionEngine {
         if (isCancelled) throw CancellationException("Generation cancelled")
 
         // 2. Initial Latents
-        val initialLatents = GaussianNoise.generate(4 * 64 * 64, seed)
+        val schedule = SdTurboScheduler.getSchedule(params.steps)
+        val rawNoise = GaussianNoise.generate(4 * 64 * 64, seed)
+        val initialLatents = FloatArray(rawNoise.size) { i -> rawNoise[i] * schedule.initNoiseSigma }
 
         // 3. UNet Session (1-4 steps SD-Turbo)
         val denoisedLatents = createSession(env, unetFile).use { unetSession ->

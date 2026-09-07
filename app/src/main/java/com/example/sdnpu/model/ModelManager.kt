@@ -18,6 +18,7 @@ import java.util.concurrent.TimeUnit
 class ModelManager(
     private val baseStorageDir: File,
     private val secondaryStorageDir: File? = null,
+    private val fallbackStorageDir: File? = null,
     private val client: OkHttpClient = OkHttpClient.Builder()
         .followRedirects(true)
         .followSslRedirects(true)
@@ -246,7 +247,7 @@ class ModelManager(
     }
 
     fun listLocalModels(): List<String> {
-        val dirs = listOfNotNull(baseStorageDir, secondaryStorageDir)
+        val dirs = listOfNotNull(baseStorageDir, secondaryStorageDir, fallbackStorageDir).distinct()
         return dirs.flatMap { dir ->
             dir.listFiles { f ->
                 f.isDirectory && (
@@ -270,7 +271,7 @@ class ModelManager(
 
     fun isRealESRGANAvailable(scale: Int): Boolean {
         val modelId = "realesrgan_x${scale}plus"
-        val dirs = listOfNotNull(baseStorageDir, secondaryStorageDir)
+        val dirs = listOfNotNull(baseStorageDir, secondaryStorageDir, fallbackStorageDir).distinct()
         return dirs.any { dir ->
             val modelDir = File(dir, modelId)
             modelDir.exists() && File(modelDir, "model.bin").exists() && File(modelDir, ".complete").exists()
@@ -278,7 +279,7 @@ class ModelManager(
     }
 
     fun loadLocalManifest(modelId: String): ModelManifest? {
-        val dirs = listOfNotNull(baseStorageDir, secondaryStorageDir)
+        val dirs = listOfNotNull(baseStorageDir, secondaryStorageDir, fallbackStorageDir).distinct()
         for (dir in dirs) {
             val manifestFile = File(File(dir, modelId), "manifest.json")
             if (manifestFile.exists()) {
