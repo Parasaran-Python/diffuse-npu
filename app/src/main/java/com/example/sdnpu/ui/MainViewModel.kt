@@ -270,11 +270,16 @@ class MainViewModel(
     }
 
     fun startGeneration() {
-        if (generationJob?.isActive == true) return
+        android.util.Log.i("MainViewModel", "startGeneration requested: modelId=${_params.value.modelId}, prompt='${_params.value.prompt}'")
+        if (generationJob?.isActive == true) {
+            android.util.Log.w("MainViewModel", "generationJob is already active!")
+            return
+        }
 
         generationJob = viewModelScope.launch {
             val prompt = _params.value.prompt
             pipelineManager.runGeneration(_params.value).collect { state ->
+                android.util.Log.i("MainViewModel", "pipelineState updated: $state")
                 _pipelineState.value = state
                 when (state) {
                     is PipelineState.Generating -> {

@@ -42,12 +42,7 @@ fun ModelDownloadDialog(
             status is DownloadStatus.VerifyingChecksum
 
     AlertDialog(
-        onDismissRequest = {
-            if (isDownloading) {
-                onCancelDownload()
-            }
-            onDismiss()
-        },
+        onDismissRequest = onDismiss,
         title = {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -171,7 +166,7 @@ fun ModelDownloadDialog(
                     onClick = onCancelDownload,
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
-                    Text("Cancel")
+                    Text("Cancel Download")
                 }
             } else {
                 Button(
@@ -184,14 +179,15 @@ fun ModelDownloadDialog(
         },
         dismissButton = {
             TextButton(
-                onClick = {
-                    if (isDownloading) {
-                        onCancelDownload()
-                    }
-                    onDismiss()
-                }
+                onClick = onDismiss
             ) {
-                Text(if (status is DownloadStatus.Completed) "Done" else "Close")
+                Text(
+                    when {
+                        status is DownloadStatus.Completed -> "Done"
+                        isDownloading -> "Hide / Background"
+                        else -> "Close"
+                    }
+                )
             }
         }
     )

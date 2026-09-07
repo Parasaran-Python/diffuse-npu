@@ -4,16 +4,20 @@ import ai.onnxruntime.OnnxJavaType
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtException
+import ai.onnxruntime.OrtProvider
 import ai.onnxruntime.OrtSession
 import ai.onnxruntime.TensorInfo
+import android.util.Log
 import com.example.sdnpu.pipeline.GenerationParams
 import kotlinx.coroutines.CancellationException
 import java.io.File
 import java.nio.FloatBuffer
 import java.nio.IntBuffer
 import java.nio.LongBuffer
+import java.nio.ShortBuffer
 
 object OnnxDiffusionEngine {
+    private const val TAG = "OnnxDiffusionEngine"
     private val tokenizer = ClipTokenizer()
 
     @Volatile
@@ -32,54 +36,143 @@ object OnnxDiffusionEngine {
         isCancelled = true
     }
 
+    fun floatToFp16(f: Float): Short {
+        val fbits = java.lang.Float.floatToIntBits(f)
+        val sign = (fbits ushr 16) and 0x8000
+        val valExp = ((fbits ushr 23) and 0xff) - 127 + 15
+        if (valExp <= 0) {
+            return sign.toShort()
+        } else if (valExp >= 31) {
+            return (sign or 0x7c00).toShort()
+        }
+        val mant = (fbits and 0x007fffff) ushr 13
+        return (sign or (valExp shl 10) or mant).toShort()
+    }
+
+    fun fp16ToFloat(h: Short): Float {
+        val hInt = h.toInt() and 0xffff
+        val sign = (hInt and 0x8000) shl 16
+        val exp = (hInt and 0x7c00) ushr 10
+        val mant = hInt and 0x03ff
+        if (exp == 0) {
+            return java.lang.Float.intBitsToFloat(sign)
+        }
+        if (exp == 31) {
+            return if (mant == 0) {
+                if (sign == 0) Float.POSITIVE_INFINITY else Float.NEGATIVE_INFINITY
+            } else {
+                Float.NaN
+            }
+        }
+        val fExp = (exp - 15 + 127) shl 23
+        val fMant = mant shl 13
+        return java.lang.Float.intBitsToFloat(sign or fExp or fMant)
+    }
+
+    fun createFloatTensor(
+        env: OrtEnvironment,
+        targetType: OnnxJavaType?,
+        floats: FloatArray,
+        shape: LongArray
+    ): OnnxTensor {
+        return if (targetType == OnnxJavaType.FLOAT16) {
+            val shortBuf = ShortBuffer.allocate(floats.size)
+            for (f in floats) {
+                shortBuf.put(floatToFp16(f))
+            }
+            shortBuf.flip()
+            OnnxTensor.createTensor(env, shortBuf, shape, OnnxJavaType.FLOAT16)
+        } else {
+            val floatBuf = FloatBuffer.wrap(floats)
+            OnnxTensor.createTensor(env, floatBuf, shape)
+        }
+    }
+
+    fun extractFloatsFromTensor(tensor: OnnxTensor): FloatArray {
+        val info = tensor.info
+        return if (info.type == OnnxJavaType.FLOAT16) {
+            val shortBuf = tensor.shortBuffer
+            val floats = FloatArray(shortBuf.remaining())
+            for (i in floats.indices) {
+                floats[i] = fp16ToFloat(shortBuf.get())
+            }
+            floats
+        } else {
+            val floatBuf = tensor.floatBuffer
+            val floats = FloatArray(floatBuf.remaining())
+            floatBuf.get(floats)
+            floats
+        }
+    }
+
     fun createSessionOptions(): OrtSession.SessionOptions {
         val options = OrtSession.SessionOptions()
         options.setIntraOpNumThreads(4)
         options.addConfigEntry("session.load_model_format", "ONNX")
-        try {
-            val qnnOptions = mapOf(
-                "backend_type" to "HTP",
-                "htp_performance_mode" to "burst",
-                "htp_graph_finalization_optimization_mode" to "3"
-            )
-            options.addQnn(qnnOptions)
-        } catch (_: Throwable) {
+        val availableProviders = runCatching { OrtEnvironment.getAvailableProviders() }.getOrNull() ?: emptySet()
+        if (availableProviders.contains(OrtProvider.QNN)) {
+            try {
+                val qnnOptions = mapOf(
+                    "backend_type" to "HTP",
+                    "htp_performance_mode" to "burst",
+                    "htp_graph_finalization_optimization_mode" to "3"
+                )
+                options.addQnn(qnnOptions)
+                return options
+            } catch (t: Throwable) {
+                Log.w(TAG, "QNN provider option configuration failed", t)
+            }
+        }
+        if (availableProviders.contains(OrtProvider.NNAPI)) {
             try {
                 options.addNnapi()
-            } catch (_: Throwable) {}
+                return options
+            } catch (t: Throwable) {
+                Log.w(TAG, "NNAPI provider option configuration failed", t)
+            }
         }
         return options
     }
 
     fun createSession(env: OrtEnvironment, modelFile: File): OrtSession {
-        // Tier 1: Try Qualcomm QNN Execution Provider (HTP Backend)
-        try {
-            OrtSession.SessionOptions().use { qnnOptions ->
-                qnnOptions.setIntraOpNumThreads(4)
-                qnnOptions.addConfigEntry("session.load_model_format", "ONNX")
-                val qnnProviderOptions = mapOf(
-                    "backend_type" to "HTP",
-                    "htp_performance_mode" to "burst",
-                    "htp_graph_finalization_optimization_mode" to "3"
-                )
-                qnnOptions.addQnn(qnnProviderOptions)
-                return env.createSession(modelFile.absolutePath, qnnOptions)
+        val availableProviders = runCatching { OrtEnvironment.getAvailableProviders() }.getOrNull() ?: emptySet()
+
+        // Tier 1: Try Qualcomm QNN Execution Provider (HTP Backend) if supported in current build
+        if (availableProviders.contains(OrtProvider.QNN)) {
+            try {
+                OrtSession.SessionOptions().use { qnnOptions ->
+                    qnnOptions.setIntraOpNumThreads(4)
+                    qnnOptions.addConfigEntry("session.load_model_format", "ONNX")
+                    val qnnProviderOptions = mapOf(
+                        "backend_type" to "HTP",
+                        "htp_performance_mode" to "burst",
+                        "htp_graph_finalization_optimization_mode" to "3"
+                    )
+                    qnnOptions.addQnn(qnnProviderOptions)
+                    return env.createSession(modelFile.absolutePath, qnnOptions)
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "Tier 1 (QNN) session creation failed for ${modelFile.name}, falling back", t)
             }
-        } catch (_: Throwable) {
-            // Tier 2: Try Android NNAPI Execution Provider
+        }
+
+        // Tier 2: Try Android NNAPI Execution Provider if supported in current build
+        if (availableProviders.contains(OrtProvider.NNAPI)) {
             try {
                 OrtSession.SessionOptions().use { nnapiOptions ->
                     nnapiOptions.setIntraOpNumThreads(4)
                     nnapiOptions.addNnapi()
                     return env.createSession(modelFile.absolutePath, nnapiOptions)
                 }
-            } catch (_: Throwable) {
-                // Tier 3: Fallback to CPU with multi-threading
-                OrtSession.SessionOptions().use { cpuOptions ->
-                    cpuOptions.setIntraOpNumThreads(4)
-                    return env.createSession(modelFile.absolutePath, cpuOptions)
-                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "Tier 2 (NNAPI) session creation failed for ${modelFile.name}, falling back", t)
             }
+        }
+
+        // Tier 3: Fallback to CPU with multi-threading
+        OrtSession.SessionOptions().use { cpuOptions ->
+            cpuOptions.setIntraOpNumThreads(4)
+            return env.createSession(modelFile.absolutePath, cpuOptions)
         }
     }
 
@@ -175,7 +268,6 @@ object OnnxDiffusionEngine {
         try {
             val result = textEncoderSession.run(inputs)
             result.use { res ->
-                // Find output tensor by name containing "last_hidden_state" or matching 77 * 768 count
                 var chosenTensor: OnnxTensor? = null
                 for (entry in res) {
                     val tensor = entry.value as? OnnxTensor ?: continue
@@ -183,18 +275,15 @@ object OnnxDiffusionEngine {
                         chosenTensor = tensor
                         break
                     }
-                    if (tensor.floatBuffer.remaining() == 77 * 768) {
+                    if (tensor.info.shape.size >= 3 && tensor.info.shape[1] == 77L) {
                         chosenTensor = tensor
                     }
                 }
                 if (chosenTensor == null) {
-                    chosenTensor = res.get(0) as OnnxTensor
+                    chosenTensor = (res.get(0) as? OnnxTensor) ?: (res.iterator().next().value as OnnxTensor)
                 }
 
-                val floatBuf = chosenTensor.floatBuffer
-                val embeddings = FloatArray(floatBuf.remaining())
-                floatBuf.get(embeddings)
-                return embeddings
+                return extractFloatsFromTensor(chosenTensor)
             }
         } finally {
             inputTensor.close()
@@ -214,13 +303,14 @@ object OnnxDiffusionEngine {
         val tempLatents = FloatArray(currentLatents.size)
         val numSteps = steps.coerceIn(1, 50)
 
-        // Allocate hiddenTensor once outside the step loop and reuse across all steps
         val hiddenName = unetSession.inputNames.firstOrNull {
             it.contains("hidden") || it.contains("context")
         } ?: "encoder_hidden_states"
-        val hiddenTensor = OnnxTensor.createTensor(
+        val hiddenInfo = unetSession.inputInfo[hiddenName]?.info as? TensorInfo
+        val hiddenTensor = createFloatTensor(
             env,
-            FloatBuffer.wrap(textEmbeddings),
+            hiddenInfo?.type,
+            textEmbeddings,
             longArrayOf(1, 77, textEmbeddings.size / 77L)
         )
 
@@ -234,9 +324,14 @@ object OnnxDiffusionEngine {
                 val nextSigma = 1.0f - ((stepIndex + 1).toFloat() / numSteps.toFloat())
                 val timestepVal = 999.0f * sigma
 
-                val sampleTensor = OnnxTensor.createTensor(
+                val sampleName = unetSession.inputNames.firstOrNull {
+                    it.contains("sample") || it.contains("latent")
+                } ?: "sample"
+                val sampleInfo = unetSession.inputInfo[sampleName]?.info as? TensorInfo
+                val sampleTensor = createFloatTensor(
                     env,
-                    FloatBuffer.wrap(currentLatents),
+                    sampleInfo?.type,
+                    currentLatents,
                     longArrayOf(1, 4, 64, 64)
                 )
 
@@ -245,14 +340,13 @@ object OnnxDiffusionEngine {
                 val timestepTensor = if (timeInfo?.type == OnnxJavaType.INT64) {
                     val buf = LongBuffer.wrap(longArrayOf(timestepVal.toLong()))
                     OnnxTensor.createTensor(env, buf, longArrayOf(1))
+                } else if (timeInfo?.type == OnnxJavaType.FLOAT16) {
+                    val buf = ShortBuffer.wrap(shortArrayOf(floatToFp16(timestepVal)))
+                    OnnxTensor.createTensor(env, buf, longArrayOf(1), OnnxJavaType.FLOAT16)
                 } else {
                     val buf = FloatBuffer.wrap(floatArrayOf(timestepVal))
                     OnnxTensor.createTensor(env, buf, longArrayOf(1))
                 }
-
-                val sampleName = unetSession.inputNames.firstOrNull {
-                    it.contains("sample") || it.contains("latent")
-                } ?: "sample"
 
                 val inputs = mapOf(
                     sampleName to sampleTensor,
@@ -263,10 +357,8 @@ object OnnxDiffusionEngine {
                 try {
                     val result = unetSession.run(inputs)
                     result.use { res ->
-                        val noisePredTensor = res.get(0) as OnnxTensor
-                        val noiseBuf = noisePredTensor.floatBuffer
-                        val noisePred = FloatArray(noiseBuf.remaining())
-                        noiseBuf.get(noisePred)
+                        val noisePredTensor = (res.get(0) as? OnnxTensor) ?: (res.iterator().next().value as OnnxTensor)
+                        val noisePred = extractFloatsFromTensor(noisePredTensor)
 
                         eulerStep(currentLatents, noisePred, sigma, nextSigma, tempLatents)
                         System.arraycopy(tempLatents, 0, currentLatents, 0, currentLatents.size)
@@ -300,24 +392,31 @@ object OnnxDiffusionEngine {
             it.contains("latent") || it.contains("sample")
         } ?: vaeSession.inputNames.iterator().next()
 
-        val latentTensor = OnnxTensor.createTensor(
+        val latentInfo = vaeSession.inputInfo[inputName]?.info as? TensorInfo
+        val latentTensor = createFloatTensor(
             env,
-            FloatBuffer.wrap(scaledLatents),
+            latentInfo?.type,
+            scaledLatents,
             longArrayOf(1, 4, 64, 64)
         )
 
         val rgbFloats = latentTensor.use { tensor ->
             val result = vaeSession.run(mapOf(inputName to tensor))
             result.use { res ->
-                val outTensor = res.get(0) as OnnxTensor
-                val floatBuf = outTensor.floatBuffer
-                val floats = FloatArray(floatBuf.remaining())
-                floatBuf.get(floats)
-                floats
+                val outTensor = (res.get(0) as? OnnxTensor) ?: (res.iterator().next().value as OnnxTensor)
+                extractFloatsFromTensor(outTensor)
             }
         }
 
         return planarRgbToArgbBytes(rgbFloats, width, height)
+    }
+
+    fun resolveComponentFile(modelDir: File, componentName: String): File {
+        val flat = File(modelDir, "$componentName.onnx")
+        if (flat.exists()) return flat
+        val nested = File(File(modelDir, componentName), "model.onnx")
+        if (nested.exists()) return nested
+        return flat
     }
 
     fun generate(
@@ -326,9 +425,9 @@ object OnnxDiffusionEngine {
         onStep: ((Int, Int) -> Unit)? = null
     ): ByteArray {
         isCancelled = false
-        val textEncoderFile = File(modelDir, "text_encoder.onnx")
-        val unetFile = File(modelDir, "unet.onnx")
-        val vaeDecoderFile = File(modelDir, "vae_decoder.onnx")
+        val textEncoderFile = resolveComponentFile(modelDir, "text_encoder")
+        val unetFile = resolveComponentFile(modelDir, "unet")
+        val vaeDecoderFile = resolveComponentFile(modelDir, "vae_decoder")
 
         val requiredFiles = listOf(textEncoderFile, unetFile, vaeDecoderFile)
         for (file in requiredFiles) {

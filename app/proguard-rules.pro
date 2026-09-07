@@ -16,3 +16,12 @@
     <init>(...);
 }
 -keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
+
+# Microsoft ONNX Runtime JNI & Reflection
+-keep class ai.onnxruntime.** { *; }
+-dontwarn ai.onnxruntime.**
+
+# OkHttp and Gson
+-dontwarn okhttp3.**
+-dontwarn okio.**
+-keep class com.google.gson.** { *; }
