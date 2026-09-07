@@ -261,4 +261,95 @@ class MainViewModelTest {
             server.shutdown()
         }
     }
+
+    @Test
+    fun testPauseAndResumeDownloadInProcess() = runBlocking {
+        val server = okhttp3.mockwebserver.MockWebServer()
+        server.start()
+        try {
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(404))
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(200).setBody("bytes"))
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(200).setBody("bytes2"))
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(200).setBody("bytes3"))
+
+            val baseUrl = server.url("/").toString()
+            viewModel.downloadModelFromUrl(baseUrl, modelId = "sdturbo")
+
+            val downloading = viewModel.downloadStatus.filter { it is com.example.sdnpu.model.DownloadStatus.DownloadingComponent }.first()
+            assertNotNull(downloading)
+
+            // Test pauseDownload()
+            viewModel.pauseDownload()
+            val paused = viewModel.downloadStatus.filter { it is com.example.sdnpu.model.DownloadStatus.Paused }.first()
+            assertTrue(paused is com.example.sdnpu.model.DownloadStatus.Paused)
+            assertTrue(modelManager.isPaused)
+
+            // Test resumeDownload()
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(200).setBody("resume_bytes"))
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(200).setBody("resume_bytes2"))
+            viewModel.resumeDownload()
+            assertFalse(modelManager.isPaused)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun testCancelDownloadInProcess() = runBlocking {
+        val server = okhttp3.mockwebserver.MockWebServer()
+        server.start()
+        try {
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(404))
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(200).setBody("bytes"))
+
+            val baseUrl = server.url("/").toString()
+            viewModel.downloadModelFromUrl(baseUrl, modelId = "sdturbo")
+
+            viewModel.cancelDownload()
+            assertEquals(com.example.sdnpu.model.DownloadStatus.Idle, viewModel.downloadStatus.value)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun testMainViewModelObservesModelDownloadServiceWhenApplicationPresent() = runBlocking {
+        val dummyApp = android.app.Application()
+        val vmWithApp = MainViewModel(
+            application = dummyApp,
+            modelManager = modelManager,
+            historyRepository = historyRepository,
+            settingsRepository = settingsRepository,
+            deviceMonitor = deviceMonitor,
+            notificationManager = notificationManager,
+            pipelineManager = pipelineManager
+        )
+
+        try {
+            val testStatus = com.example.sdnpu.model.DownloadStatus.DownloadingComponent(
+                componentName = "unet.onnx",
+                bytesRead = 500L,
+                totalBytes = 1000L,
+                progressPercent = 50
+            )
+            com.example.sdnpu.service.ModelDownloadService.downloadStatus.value = testStatus
+
+            val observed = vmWithApp.downloadStatus.filter { it is com.example.sdnpu.model.DownloadStatus.DownloadingComponent }.first()
+            assertEquals(testStatus, observed)
+        } finally {
+            com.example.sdnpu.service.ModelDownloadService.downloadStatus.value = com.example.sdnpu.model.DownloadStatus.Idle
+            vmWithApp.viewModelScope.coroutineContext[Job]?.children?.forEach { it.cancelAndJoin() }
+        }
+    }
+
+    @Test
+    fun testModelDownloadServiceConstants() {
+        assertEquals("com.example.sdnpu.service.ACTION_START", com.example.sdnpu.service.ModelDownloadService.ACTION_START)
+        assertEquals("com.example.sdnpu.service.ACTION_PAUSE", com.example.sdnpu.service.ModelDownloadService.ACTION_PAUSE)
+        assertEquals("com.example.sdnpu.service.ACTION_RESUME", com.example.sdnpu.service.ModelDownloadService.ACTION_RESUME)
+        assertEquals("com.example.sdnpu.service.ACTION_CANCEL", com.example.sdnpu.service.ModelDownloadService.ACTION_CANCEL)
+        assertEquals("com.example.sdnpu.service.EXTRA_URL", com.example.sdnpu.service.ModelDownloadService.EXTRA_URL)
+        assertEquals("com.example.sdnpu.service.EXTRA_MODEL_ID", com.example.sdnpu.service.ModelDownloadService.EXTRA_MODEL_ID)
+        assertEquals("sd_npu_downloads", com.example.sdnpu.service.ModelDownloadService.CHANNEL_ID)
+    }
 }
