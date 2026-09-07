@@ -100,7 +100,9 @@ class MainActivity : ComponentActivity() {
                                 onOpenDownloadDialog = { modelId ->
                                     targetDownloadModelId = modelId
                                     showDownloadDialog = true
-                                }
+                                },
+                                onPauseDownload = { viewModel.pauseDownload() },
+                                onResumeDownload = { viewModel.resumeDownload() }
                             )
                             NavTab.GALLERY -> GalleryScreen(
                                 historyList = filteredHistory,
@@ -146,7 +148,9 @@ class MainActivity : ComponentActivity() {
                                 initialModelId = targetDownloadModelId,
                                 onDismiss = { showDownloadDialog = false },
                                 onStartDownload = { url, modelId -> viewModel.downloadModelFromUrl(url, modelId) },
-                                onCancelDownload = { viewModel.cancelDownload() }
+                                onCancelDownload = { viewModel.cancelDownload() },
+                                onPauseDownload = { viewModel.pauseDownload() },
+                                onResumeDownload = { viewModel.resumeDownload() }
                             )
                         }
                     }

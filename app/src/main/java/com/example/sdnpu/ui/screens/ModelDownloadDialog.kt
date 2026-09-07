@@ -21,6 +21,8 @@ fun ModelDownloadDialog(
     onDismiss: () -> Unit,
     onStartDownload: (url: String, modelId: String) -> Unit,
     onCancelDownload: () -> Unit = {},
+    onPauseDownload: () -> Unit = {},
+    onResumeDownload: () -> Unit = {},
     initialModelId: String = "sdturbo"
 ) {
     val presets = remember { ModelDownloadPresets.getPresets() }
@@ -40,6 +42,8 @@ fun ModelDownloadDialog(
     val isDownloading = status is DownloadStatus.FetchingManifest ||
             status is DownloadStatus.DownloadingComponent ||
             status is DownloadStatus.VerifyingChecksum
+    val isPaused = status is DownloadStatus.Paused
+    val isInProgress = isDownloading || isPaused
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -71,13 +75,13 @@ fun ModelDownloadDialog(
                         FilterChip(
                             selected = (selectedPresetId == preset.id),
                             onClick = {
-                                if (!isDownloading) {
+                                if (!isInProgress) {
                                     selectedPresetId = preset.id
                                     serverUrl = preset.defaultUrl
                                 }
                             },
                             label = { Text(preset.name) },
-                            enabled = !isDownloading
+                            enabled = !isInProgress
                         )
                     }
                 }
@@ -98,7 +102,7 @@ fun ModelDownloadDialog(
                     },
                     label = { Text("Model URL (Override / Custom)") },
                     placeholder = { Text("https://huggingface.co/... or http://...") },
-                    enabled = !isDownloading,
+                    enabled = !isInProgress,
                     modifier = Modifier.fillMaxWidth(),
                     maxLines = 3,
                     supportingText = {
@@ -124,6 +128,21 @@ fun ModelDownloadDialog(
                         LinearProgressIndicator(
                             progress = { status.progressPercent / 100f },
                             modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    is DownloadStatus.Paused -> {
+                        val downloadedMb = status.downloadedBytes / (1024 * 1024)
+                        val totalMb = if (status.totalBytes > 0) status.totalBytes / (1024 * 1024) else 0
+                        val progressText = if (totalMb > 0) {
+                            "Paused - ${status.componentName}: ${status.percent}% ($downloadedMb MB / $totalMb MB)"
+                        } else {
+                            "Paused - ${status.componentName} (${status.percent}%)"
+                        }
+                        Text(progressText, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.tertiary)
+                        LinearProgressIndicator(
+                            progress = { status.percent / 100f },
+                            modifier = Modifier.fillMaxWidth(),
+                            color = MaterialTheme.colorScheme.tertiary
                         )
                     }
                     is DownloadStatus.VerifyingChecksum -> {
@@ -162,11 +181,32 @@ fun ModelDownloadDialog(
         },
         confirmButton = {
             if (isDownloading) {
-                Button(
-                    onClick = onCancelDownload,
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) {
-                    Text("Cancel Download")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = onPauseDownload
+                    ) {
+                        Text("Pause")
+                    }
+                    Button(
+                        onClick = onCancelDownload,
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("Cancel")
+                    }
+                }
+            } else if (isPaused) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = onResumeDownload
+                    ) {
+                        Text("Resume")
+                    }
+                    Button(
+                        onClick = onCancelDownload,
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("Cancel")
+                    }
                 }
             } else {
                 Button(
@@ -184,7 +224,7 @@ fun ModelDownloadDialog(
                 Text(
                     when {
                         status is DownloadStatus.Completed -> "Done"
-                        isDownloading -> "Hide / Background"
+                        isInProgress -> "Hide / Background"
                         else -> "Close"
                     }
                 )

@@ -1,5 +1,6 @@
 package com.example.sdnpu.ui.components
 
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.widget.Toast
@@ -39,6 +40,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -84,13 +86,16 @@ fun FullScreenImageViewer(
     var offset by remember { mutableStateOf(Offset.Zero) }
     var isSaving by remember { mutableStateOf(false) }
 
-    val bitmap = remember(imageFile.absolutePath) {
-        if (imageFile.exists()) {
-            BitmapFactory.decodeFile(imageFile.absolutePath)?.asImageBitmap()
-        } else {
-            null
+    val bitmapState = produceState<Bitmap?>(initialValue = null, key1 = imageFile.absolutePath) {
+        value = withContext(Dispatchers.IO) {
+            if (imageFile.exists()) {
+                BitmapFactory.decodeFile(imageFile.absolutePath)
+            } else {
+                null
+            }
         }
     }
+    val bitmap = bitmapState.value
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -143,7 +148,7 @@ fun FullScreenImageViewer(
             ) {
                 if (bitmap != null) {
                     Image(
-                        bitmap = bitmap,
+                        bitmap = bitmap.asImageBitmap(),
                         contentDescription = prompt ?: "Full screen image",
                         modifier = Modifier
                             .fillMaxSize()
@@ -178,7 +183,7 @@ fun FullScreenImageViewer(
                 IconButton(
                     onClick = onDismiss,
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(48.dp)
                         .clip(CircleShape)
                         .background(Color.Black.copy(alpha = 0.6f)),
                     colors = IconButtonDefaults.iconButtonColors(contentColor = Color.White)

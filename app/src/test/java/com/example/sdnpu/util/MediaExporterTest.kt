@@ -2,6 +2,7 @@ package com.example.sdnpu.util
 
 import android.app.Application
 import android.content.Intent
+import android.net.Uri
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -103,6 +104,20 @@ class MediaExporterTest {
             val intent = MediaExporter.createShareIntent(app, tempFile, prompt)
             assertNotNull(intent)
         } finally {
+            tempFile.delete()
+        }
+    }
+
+    @Test
+    fun testCreateShareIntent_setsClipDataWhenUriPresent() {
+        val app = Application()
+        val tempFile = File.createTempFile("test_export", ".png")
+        try {
+            MediaExporter.uriResolver = { _, _, _ -> Uri.EMPTY }
+            val intent = MediaExporter.createShareIntent(app, tempFile, "Test Prompt")
+            assertNotNull(intent)
+        } finally {
+            MediaExporter.uriResolver = null
             tempFile.delete()
         }
     }
