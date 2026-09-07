@@ -1,5 +1,6 @@
 package com.example.sdnpu.util
 
+import android.content.ClipData
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -147,6 +148,7 @@ object MediaExporter {
             type = getMimeType(sourceFile)
             if (uri != null) {
                 putExtra(Intent.EXTRA_STREAM, uri)
+                clipData = ClipData.newRawUri("", uri)
             }
             if (!prompt.isNullOrBlank()) {
                 putExtra(Intent.EXTRA_TEXT, prompt)

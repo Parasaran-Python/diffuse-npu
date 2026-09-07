@@ -1,7 +1,5 @@
 package com.example.sdnpu.ui.screens
 
-import android.content.Context
-import android.content.Intent
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -12,6 +10,8 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
+import android.widget.Toast
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -19,6 +19,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
@@ -36,8 +38,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import androidx.core.content.FileProvider
 import com.example.sdnpu.data.GenerationEntity
+import com.example.sdnpu.ui.components.FullScreenImageViewer
+import com.example.sdnpu.util.MediaExporter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -59,8 +65,10 @@ fun GalleryScreen(
     onPopulateParams: (GenerationEntity) -> Unit = {}
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var inspectingRecord by remember { mutableStateOf<GenerationEntity?>(null) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    var fullScreenViewerFile by remember { mutableStateOf<Pair<File, String?>?>(null) }
 
     Column(
         modifier = Modifier
@@ -242,7 +250,10 @@ fun GalleryScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .aspectRatio(1f)
-                                .clip(RoundedCornerShape(8.dp)),
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    fullScreenViewerFile = Pair(file, record.prompt)
+                                },
                             contentScale = ContentScale.Fit
                         )
                     } else {
@@ -314,38 +325,80 @@ fun GalleryScreen(
                     Spacer(Modifier.height(16.dp))
 
                     // Action buttons
-                    Row(
+                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Button(
-                            onClick = {
-                                onPopulateParams(record)
-                                inspectingRecord = null
-                            },
-                            modifier = Modifier.weight(1f)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Re-generate")
-                        }
-
-                        OutlinedButton(
-                            onClick = {
-                                shareImage(context, record.imagePath)
+                            Button(
+                                onClick = {
+                                    onPopulateParams(record)
+                                    inspectingRecord = null
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Re-generate")
                             }
-                        ) {
-                            Icon(Icons.Default.Share, contentDescription = "Share")
+
+                            OutlinedButton(
+                                onClick = {
+                                    fullScreenViewerFile = Pair(file, record.prompt)
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.Fullscreen, contentDescription = "Fullscreen", modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Fullscreen")
+                            }
                         }
 
-                        OutlinedButton(
-                            onClick = {
-                                onDeleteSingle(record.id)
-                                inspectingRecord = null
-                            },
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.Delete, contentDescription = "Delete")
+                            FilledTonalButton(
+                                onClick = {
+                                    scope.launch {
+                                        val result = withContext(Dispatchers.IO) {
+                                            MediaExporter.saveImageToPublicGallery(context, file, record.prompt)
+                                        }
+                                        result.onSuccess {
+                                            Toast.makeText(context, "Saved to Pictures/SD_NPU", Toast.LENGTH_SHORT).show()
+                                        }.onFailure { e ->
+                                            Toast.makeText(context, "Failed to save: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.Download, contentDescription = "Save to Gallery", modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Save to Gallery", maxLines = 1)
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    MediaExporter.shareImage(context, file, record.prompt)
+                                }
+                            ) {
+                                Icon(Icons.Default.Share, contentDescription = "Share")
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    onDeleteSingle(record.id)
+                                    inspectingRecord = null
+                                },
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                            ) {
+                                Icon(Icons.Default.Delete, contentDescription = "Delete")
+                            }
                         }
                     }
                 }
@@ -374,6 +427,14 @@ fun GalleryScreen(
                     Text("Cancel")
                 }
             }
+        )
+    }
+
+    fullScreenViewerFile?.let { (file, prompt) ->
+        FullScreenImageViewer(
+            imageFile = file,
+            prompt = prompt,
+            onDismiss = { fullScreenViewerFile = null }
         )
     }
 }
@@ -486,26 +547,5 @@ fun GalleryItemCard(
                 )
             }
         }
-    }
-}
-
-private fun shareImage(context: Context, imagePath: String) {
-    try {
-        val file = File(imagePath)
-        if (!file.exists()) return
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-            type = "image/png"
-            putExtra(Intent.EXTRA_STREAM, uri)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        context.startActivity(Intent.createChooser(shareIntent, "Share Image"))
-    } catch (_: Exception) {
-        // Fallback generic send
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, "Generated with Stable Diffusion NPU: $imagePath")
-        }
-        context.startActivity(Intent.createChooser(intent, "Share"))
     }
 }

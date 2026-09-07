@@ -1,6 +1,7 @@
 package com.example.sdnpu.ui.screens
 
 import android.graphics.BitmapFactory
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -12,6 +13,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BatteryAlert
 import androidx.compose.material.icons.filled.Casino
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -20,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.example.sdnpu.model.DownloadStatus
 import com.example.sdnpu.model.ModelVariants
@@ -28,6 +35,11 @@ import com.example.sdnpu.pipeline.PipelineState
 import com.example.sdnpu.pipeline.SamplerType
 import com.example.sdnpu.pipeline.UpscaleMode
 import com.example.sdnpu.system.ThermalStatus
+import com.example.sdnpu.ui.components.FullScreenImageViewer
+import com.example.sdnpu.util.MediaExporter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.random.Random
 
@@ -46,8 +58,14 @@ fun GenerateScreen(
     onParamsChange: (GenerationParams) -> Unit,
     onGenerate: () -> Unit,
     onCancel: () -> Unit = {},
-    onOpenDownloadDialog: ((String) -> Unit)? = null
+    onOpenDownloadDialog: ((String) -> Unit)? = null,
+    onPauseDownload: () -> Unit = {},
+    onResumeDownload: () -> Unit = {}
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var fullscreenViewerFile by remember { mutableStateOf<File?>(null) }
+
     var showNegativePrompt by remember { mutableStateOf(false) }
     var modelExpanded by remember { mutableStateOf(false) }
     var samplerExpanded by remember { mutableStateOf(false) }
@@ -72,10 +90,12 @@ fun GenerateScreen(
         val isDownloading = downloadStatus is DownloadStatus.FetchingManifest ||
                 downloadStatus is DownloadStatus.DownloadingComponent ||
                 downloadStatus is DownloadStatus.VerifyingChecksum
-        if (isDownloading) {
+        val isPaused = downloadStatus is DownloadStatus.Paused
+        val showDownloadBanner = isDownloading || isPaused
+        if (showDownloadBanner) {
             Card(
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer
+                    containerColor = if (isPaused) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.secondaryContainer
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -91,15 +111,41 @@ fun GenerateScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = "Model Download in Progress",
+                            text = if (isPaused) "Model Download Paused" else "Model Download in Progress",
                             style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                            color = if (isPaused) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
                         )
-                        Text(
-                            text = "Tap to view",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            if (isDownloading) {
+                                OutlinedButton(
+                                    onClick = onPauseDownload,
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(28.dp)
+                                ) {
+                                    Icon(Icons.Default.Pause, contentDescription = "Pause", modifier = Modifier.size(14.dp))
+                                    Spacer(Modifier.width(2.dp))
+                                    Text("Pause", style = MaterialTheme.typography.labelSmall)
+                                }
+                            } else if (isPaused) {
+                                Button(
+                                    onClick = onResumeDownload,
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(28.dp)
+                                ) {
+                                    Icon(Icons.Default.PlayArrow, contentDescription = "Resume", modifier = Modifier.size(14.dp))
+                                    Spacer(Modifier.width(2.dp))
+                                    Text("Resume", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                            Text(
+                                text = "Details",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (isPaused) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
                     }
                     when (downloadStatus) {
                         is DownloadStatus.DownloadingComponent -> {
@@ -114,6 +160,21 @@ fun GenerateScreen(
                             LinearProgressIndicator(
                                 progress = { downloadStatus.progressPercent / 100f },
                                 modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        is DownloadStatus.Paused -> {
+                            val downloadedMb = downloadStatus.downloadedBytes / (1024 * 1024)
+                            val totalMb = if (downloadStatus.totalBytes > 0) downloadStatus.totalBytes / (1024 * 1024) else 0
+                            val progressText = if (totalMb > 0) {
+                                "Paused - ${downloadStatus.componentName}: ${downloadStatus.percent}% ($downloadedMb / $totalMb MB)"
+                            } else {
+                                "Paused - ${downloadStatus.componentName} (${downloadStatus.percent}%)"
+                            }
+                            Text(progressText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                            LinearProgressIndicator(
+                                progress = { downloadStatus.percent / 100f },
+                                modifier = Modifier.fillMaxWidth(),
+                                color = MaterialTheme.colorScheme.tertiary
                             )
                         }
                         is DownloadStatus.FetchingManifest -> {
@@ -536,7 +597,14 @@ fun GenerateScreen(
 
         if (pipelineState is PipelineState.Completed) {
             Card(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        pipelineState.imagePath?.let { path ->
+                            val f = File(path)
+                            if (f.exists()) fullscreenViewerFile = f
+                        }
+                    },
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -552,14 +620,20 @@ fun GenerateScreen(
                             BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap()
                         }
                         if (bitmap != null) {
-                            Box(modifier = Modifier.fillMaxWidth()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        fullscreenViewerFile = file
+                                    }
+                            ) {
                                 Image(
                                     bitmap = bitmap,
                                     contentDescription = "Generated Image",
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .aspectRatio(1f)
-                                        .clip(RoundedCornerShape(8.dp)),
+                                        .aspectRatio(1f),
                                     contentScale = ContentScale.Fit
                                 )
                                 // Resolution and upscale badges
@@ -595,6 +669,53 @@ fun GenerateScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+
+                        // Action buttons: Fullscreen, Save to Gallery, Share
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedButton(
+                                onClick = { fullscreenViewerFile = file },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.Fullscreen, contentDescription = "Fullscreen", modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Fullscreen", maxLines = 1)
+                            }
+
+                            FilledTonalButton(
+                                onClick = {
+                                    scope.launch {
+                                        val result = withContext(Dispatchers.IO) {
+                                            MediaExporter.saveImageToPublicGallery(context, file, params.prompt)
+                                        }
+                                        result.onSuccess {
+                                            Toast.makeText(context, "Saved to Pictures/SD_NPU", Toast.LENGTH_SHORT).show()
+                                        }.onFailure { e ->
+                                            Toast.makeText(context, "Failed to save: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.Download, contentDescription = "Save to Gallery", modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Save", maxLines = 1)
+                            }
+
+                            Button(
+                                onClick = {
+                                    MediaExporter.shareImage(context, file, params.prompt)
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.Share, contentDescription = "Share", modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Share", maxLines = 1)
+                            }
+                        }
                     }
                 }
             }
@@ -612,5 +733,13 @@ fun GenerateScreen(
                 )
             }
         }
+    }
+
+    fullscreenViewerFile?.let { file ->
+        FullScreenImageViewer(
+            imageFile = file,
+            prompt = params.prompt,
+            onDismiss = { fullscreenViewerFile = null }
+        )
     }
 }
