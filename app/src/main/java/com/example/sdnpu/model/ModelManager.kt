@@ -49,6 +49,10 @@ class ModelManager(
         } catch (_: Exception) {}
     }
 
+    fun resetPause() {
+        isPaused = false
+    }
+
     fun resumeDownload(manifest: ModelManifest, baseUrl: String): Flow<DownloadStatus> {
         isPaused = false
         return downloadModel(manifest, baseUrl)

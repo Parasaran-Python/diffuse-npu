@@ -340,6 +340,7 @@ class MainViewModel(
     fun downloadModelFromUrl(url: String, modelId: String? = null) {
         lastDownloadUrl = url
         lastDownloadModelId = modelId
+        modelManager.resetPause()
 
         val app = application
         if (app != null) {
@@ -393,7 +394,7 @@ class MainViewModel(
     fun resumeDownload() {
         val app = application
         if (app != null) {
-            ModelDownloadService.resumeDownload(app)
+            ModelDownloadService.resumeDownload(app, lastDownloadUrl, lastDownloadModelId)
         } else {
             val url = lastDownloadUrl ?: return
             downloadJob?.cancel()
