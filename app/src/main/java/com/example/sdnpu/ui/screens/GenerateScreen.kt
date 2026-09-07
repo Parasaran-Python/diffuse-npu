@@ -64,7 +64,7 @@ fun GenerateScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var fullscreenViewerFile by remember { mutableStateOf<File?>(null) }
+    var fullscreenViewerFile by remember { mutableStateOf<Pair<File, String?>?>(null) }
     var isSavingImage by remember { mutableStateOf(false) }
 
     var showNegativePrompt by remember { mutableStateOf(false) }
@@ -597,157 +597,159 @@ fun GenerateScreen(
         }
 
         if (pipelineState is PipelineState.Completed) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                        pipelineState.imagePath?.let { path ->
-                            val f = File(path)
-                            if (f.exists()) fullscreenViewerFile = f
-                        }
-                    },
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        "Generation Complete in ${pipelineState.executionTimeMs} ms!",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+            val completedPrompt = pipelineState.prompt.ifBlank { params.prompt }
 
-                    pipelineState.imagePath?.let { path ->
-                        val file = File(path)
-                        val bitmap = remember(path) {
-                            BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap()
-                        }
-                        if (bitmap != null) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .clickable {
-                                        fullscreenViewerFile = file
-                                    }
-                            ) {
-                                Image(
-                                    bitmap = bitmap,
-                                    contentDescription = "Generated Image",
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .aspectRatio(1f),
-                                    contentScale = ContentScale.Fit
-                                )
-                                // Resolution and upscale badges
-                                Row(
-                                    modifier = Modifier
-                                        .align(Alignment.BottomEnd)
-                                        .padding(8.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    val resText = "${bitmap.width}x${bitmap.height}"
-                                    AssistChip(
-                                        onClick = {},
-                                        label = { Text(resText, style = MaterialTheme.typography.labelSmall) },
-                                        colors = AssistChipDefaults.assistChipColors(
-                                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
+            Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                pipelineState.imagePath?.let { path ->
+                                    val f = File(path)
+                                    if (f.exists()) fullscreenViewerFile = Pair(f, completedPrompt)
+                                }
+                            },
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                "Generation Complete in ${pipelineState.executionTimeMs} ms!",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+
+                            pipelineState.imagePath?.let { path ->
+                                val file = File(path)
+                                val bitmap = remember(path) {
+                                    BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap()
+                                }
+                                if (bitmap != null) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable {
+                                                fullscreenViewerFile = Pair(file, completedPrompt)
+                                            }
+                                    ) {
+                                        Image(
+                                            bitmap = bitmap,
+                                            contentDescription = "Generated Image",
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .aspectRatio(1f),
+                                            contentScale = ContentScale.Fit
                                         )
-                                    )
-                                    if (file.name.contains("_x2") || file.name.contains("_x4")) {
-                                        val upscaleText = if (file.name.contains("_x4")) "4x ESRGAN" else "2x ESRGAN"
-                                        AssistChip(
-                                            onClick = {},
-                                            label = { Text(upscaleText, style = MaterialTheme.typography.labelSmall) },
-                                            colors = AssistChipDefaults.assistChipColors(
-                                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f)
+                                        // Resolution and upscale badges
+                                        Row(
+                                            modifier = Modifier
+                                                .align(Alignment.BottomEnd)
+                                                .padding(8.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            val resText = "${bitmap.width}x${bitmap.height}"
+                                            AssistChip(
+                                                onClick = {},
+                                                label = { Text(resText, style = MaterialTheme.typography.labelSmall) },
+                                                colors = AssistChipDefaults.assistChipColors(
+                                                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
+                                                )
                                             )
-                                        )
+                                            if (file.name.contains("_x2") || file.name.contains("_x4")) {
+                                                val upscaleText = if (file.name.contains("_x4")) "4x ESRGAN" else "2x ESRGAN"
+                                                AssistChip(
+                                                    onClick = {},
+                                                    label = { Text(upscaleText, style = MaterialTheme.typography.labelSmall) },
+                                                    colors = AssistChipDefaults.assistChipColors(
+                                                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f)
+                                                    )
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                Text(
+                                    "Saved to: ${file.name}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+
+                                // Action buttons: Fullscreen, Save to Gallery, Share
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    OutlinedButton(
+                                        onClick = { fullscreenViewerFile = Pair(file, completedPrompt) },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.Fullscreen, contentDescription = "Fullscreen", modifier = Modifier.size(18.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Fullscreen", maxLines = 1)
+                                    }
+
+                                    FilledTonalButton(
+                                        onClick = {
+                                            if (isSavingImage) return@FilledTonalButton
+                                            isSavingImage = true
+                                            scope.launch {
+                                                try {
+                                                    val result = withContext(Dispatchers.IO) {
+                                                        MediaExporter.saveImageToPublicGallery(context, file, completedPrompt)
+                                                    }
+                                                    result.onSuccess {
+                                                        Toast.makeText(context, "Saved to Pictures/SD_NPU", Toast.LENGTH_SHORT).show()
+                                                    }.onFailure { e ->
+                                                        Toast.makeText(context, "Failed to save: ${e.message}", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                } finally {
+                                                    isSavingImage = false
+                                                }
+                                            }
+                                        },
+                                        enabled = !isSavingImage,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.Download, contentDescription = "Save to Gallery", modifier = Modifier.size(18.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Save", maxLines = 1)
+                                    }
+
+                                    Button(
+                                        onClick = {
+                                            MediaExporter.shareImage(context, file, completedPrompt)
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.Share, contentDescription = "Share", modifier = Modifier.size(18.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Share", maxLines = 1)
                                     }
                                 }
                             }
                         }
+                    }
+                }
+
+                if (pipelineState is PipelineState.Error) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
                         Text(
-                            "Saved to: ${file.name}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            text = "Error: ${pipelineState.error}",
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.padding(14.dp)
                         )
-
-                        // Action buttons: Fullscreen, Save to Gallery, Share
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            OutlinedButton(
-                                onClick = { fullscreenViewerFile = file },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(Icons.Default.Fullscreen, contentDescription = "Fullscreen", modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Fullscreen", maxLines = 1)
-                            }
-
-                            FilledTonalButton(
-                                onClick = {
-                                    if (isSavingImage) return@FilledTonalButton
-                                    isSavingImage = true
-                                    scope.launch {
-                                        try {
-                                            val result = withContext(Dispatchers.IO) {
-                                                MediaExporter.saveImageToPublicGallery(context, file, params.prompt)
-                                            }
-                                            result.onSuccess {
-                                                Toast.makeText(context, "Saved to Pictures/SD_NPU", Toast.LENGTH_SHORT).show()
-                                            }.onFailure { e ->
-                                                Toast.makeText(context, "Failed to save: ${e.message}", Toast.LENGTH_SHORT).show()
-                                            }
-                                        } finally {
-                                            isSavingImage = false
-                                        }
-                                    }
-                                },
-                                enabled = !isSavingImage,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(Icons.Default.Download, contentDescription = "Save to Gallery", modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Save", maxLines = 1)
-                            }
-
-                            Button(
-                                onClick = {
-                                    MediaExporter.shareImage(context, file, params.prompt)
-                                },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(Icons.Default.Share, contentDescription = "Share", modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Share", maxLines = 1)
-                            }
-                        }
                     }
                 }
             }
-        }
 
-        if (pipelineState is PipelineState.Error) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    text = "Error: ${pipelineState.error}",
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                    modifier = Modifier.padding(14.dp)
+            fullscreenViewerFile?.let { (file, prompt) ->
+                FullScreenImageViewer(
+                    imageFile = file,
+                    prompt = prompt,
+                    onDismiss = { fullscreenViewerFile = null }
                 )
             }
-        }
-    }
-
-    fullscreenViewerFile?.let { file ->
-        FullScreenImageViewer(
-            imageFile = file,
-            prompt = params.prompt,
-            onDismiss = { fullscreenViewerFile = null }
-        )
-    }
 }

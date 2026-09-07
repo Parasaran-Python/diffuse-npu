@@ -181,7 +181,7 @@ class PipelineManager(
                             fileSizeBytes = imageFile.length()
                         )
                     )
-                    send(PipelineState.Completed(imageFile, totalDurationMs))
+                    send(PipelineState.Completed(imageFile, totalDurationMs, prompt = batchParams.prompt))
                 } else {
                     val imageFile = File(outputDir, "sd_${System.currentTimeMillis()}_$batchIdx.png")
                     withContext(Dispatchers.IO) {
@@ -207,7 +207,7 @@ class PipelineManager(
                             fileSizeBytes = imageFile.length()
                         )
                     )
-                    send(PipelineState.Completed(imageFile, totalDurationMs))
+                    send(PipelineState.Completed(imageFile, totalDurationMs, prompt = batchParams.prompt))
                 }
             }
         } catch (e: Exception) {
