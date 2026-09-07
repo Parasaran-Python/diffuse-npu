@@ -31,11 +31,14 @@ class PipelineManager(
     }
 
     fun resolveModelDirectory(modelId: String, preferredBase: File = this.modelsDir): File {
-        val requiredFiles = listOf("text_encoder.onnx", "unet.onnx", "vae_decoder.onnx")
+        val requiredComponents = listOf("text_encoder", "unet", "vae_decoder")
         val dirs = listOfNotNull(preferredBase, if (preferredBase == this.modelsDir) secondaryModelsDir else null)
         for (dir in dirs) {
             val mDir = File(dir, modelId)
-            if (requiredFiles.all { File(mDir, it).exists() }) {
+            val allPresent = requiredComponents.all { comp ->
+                File(mDir, "$comp.onnx").exists() || File(File(mDir, comp), "model.onnx").exists()
+            }
+            if (allPresent) {
                 return dir
             }
         }
@@ -44,33 +47,43 @@ class PipelineManager(
 
     fun validateModelAvailability(modelId: String, modelsDir: File = this.modelsDir): Result<Unit> {
         val dirsToTry = listOfNotNull(modelsDir, if (modelsDir == this.modelsDir) secondaryModelsDir else null)
-        val requiredFiles = listOf("text_encoder.onnx", "unet.onnx", "vae_decoder.onnx")
+        val requiredComponents = listOf("text_encoder", "unet", "vae_decoder")
         var bestMissing = listOf<String>()
         for (dir in dirsToTry) {
             val modelDir = File(dir, modelId)
-            val missing = requiredFiles.filter { !File(modelDir, it).exists() }
+            val missing = requiredComponents.filter { comp ->
+                val flat = File(modelDir, "$comp.onnx")
+                val nested = File(File(modelDir, comp), "model.onnx")
+                !flat.exists() && !nested.exists()
+            }
             if (missing.isEmpty()) {
                 return Result.success(Unit)
             }
-            bestMissing = missing
+            bestMissing = missing.map { "$it.onnx" }
         }
         return Result.failure(IllegalStateException("Model '$modelId' components not found (missing: ${bestMissing.joinToString(", ")}). Please download in Settings or sideload via ADB."))
     }
 
     fun runGeneration(params: GenerationParams): Flow<PipelineState> = channelFlow {
+        android.util.Log.i("PipelineManager", "runGeneration starting: prompt='${params.prompt}', modelId='${params.modelId}'")
         val validation = params.validate()
         if (!validation.isValid) {
-            send(PipelineState.Error(validation.errorMessage ?: "Invalid parameters"))
+            val err = validation.errorMessage ?: "Invalid parameters"
+            android.util.Log.e("PipelineManager", "Validation error: $err")
+            send(PipelineState.Error(err))
             return@channelFlow
         }
 
         val modelValidation = validateModelAvailability(params.modelId, modelsDir)
         if (modelValidation.isFailure) {
-            send(PipelineState.Error(modelValidation.exceptionOrNull()?.message ?: "Model '${params.modelId}' not found"))
+            val err = modelValidation.exceptionOrNull()?.message ?: "Model '${params.modelId}' not found"
+            android.util.Log.e("PipelineManager", "Model availability error: $err")
+            send(PipelineState.Error(err))
             return@channelFlow
         }
 
         if (!com.example.sdnpu.system.MemoryDiagnostics.isMemorySafeForGeneration(requiredFreeMb = 1000L)) {
+            android.util.Log.w("PipelineManager", "Memory unsafe (<1GB free)")
             send(PipelineState.Error("Insufficient system memory available for generation (<1GB free)"))
             return@channelFlow
         }

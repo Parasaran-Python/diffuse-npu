@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -57,11 +58,21 @@ class ModelManager(
         val cleanBaseUrl = "$cleanBase/"
         val modelDir = File(baseStorageDir, manifest.modelId)
         val completeFile = File(modelDir, ".complete")
+        var currentPartFile: File? = null
 
         fun cleanupIfIncomplete() {
-            if (!completeFile.exists() && modelDir.exists()) {
-                modelDir.deleteRecursively()
-            }
+            try {
+                currentPartFile?.let { if (it.exists()) it.delete() }
+                if (!completeFile.exists() && modelDir.exists()) {
+                    val hasCompletedComponent = manifest.components.any { comp ->
+                        val f = File(modelDir, comp.file)
+                        f.exists() && f.length() > 0
+                    }
+                    if (!hasCompletedComponent) {
+                        modelDir.deleteRecursively()
+                    }
+                }
+            } catch (_: Exception) {}
         }
 
         try {
@@ -75,6 +86,21 @@ class ModelManager(
 
             for (comp in manifest.components) {
                 val targetFile = File(modelDir, comp.file)
+                val partFile = File(modelDir, "${comp.file}.part")
+                currentPartFile = partFile
+
+                val isSha256Provided = comp.sha256.isNotBlank() &&
+                        comp.sha256.length == 64 &&
+                        comp.sha256.all { it in "0123456789abcdefABCDEF" }
+
+                // Check if component is already completely downloaded and valid
+                if (targetFile.exists() && targetFile.length() > 0) {
+                    if (isSha256Provided && ChecksumVerifier.verifyFile(targetFile, comp.sha256)) {
+                        emit(DownloadStatus.DownloadingComponent(comp.name, targetFile.length(), targetFile.length(), 100))
+                        continue
+                    }
+                }
+
                 val candidateUrls = mutableListOf<String>()
                 candidateUrls.add("$cleanBaseUrl${comp.file}")
                 if (comp.file.endsWith(".onnx")) {
@@ -121,13 +147,21 @@ class ModelManager(
                 }
 
                 val totalBytes = responseBody.contentLength()
+
+                // If file already exists and length matches content length, skip re-downloading
+                if (!isSha256Provided && totalBytes > 0 && targetFile.exists() && targetFile.length() == totalBytes) {
+                    response.close()
+                    emit(DownloadStatus.DownloadingComponent(comp.name, totalBytes, totalBytes, 100))
+                    continue
+                }
+
                 var downloadedBytes = 0L
 
                 try {
                     response.use {
                         responseBody.byteStream().use { input ->
-                            FileOutputStream(targetFile).use { output ->
-                                val buffer = ByteArray(32768)
+                            BufferedOutputStream(FileOutputStream(partFile), 262144).use { output ->
+                                val buffer = ByteArray(262144) // 256 KB buffer for high-throughput mobile flash I/O
                                 var read: Int
                                 var lastReportTime = System.currentTimeMillis()
 
@@ -141,6 +175,7 @@ class ModelManager(
                                         lastReportTime = now
                                     }
                                 }
+                                output.flush()
                             }
                         }
                     }
@@ -150,19 +185,26 @@ class ModelManager(
                     return@flow
                 }
 
-                val isSha256Provided = comp.sha256.isNotBlank() &&
-                        comp.sha256.length == 64 &&
-                        comp.sha256.all { it in "0123456789abcdefABCDEF" }
-
                 if (isSha256Provided) {
                     emit(DownloadStatus.VerifyingChecksum(comp.name))
-                    val valid = ChecksumVerifier.verifyFile(targetFile, comp.sha256)
+                    val valid = ChecksumVerifier.verifyFile(partFile, comp.sha256)
                     if (!valid) {
                         cleanupIfIncomplete()
                         emit(DownloadStatus.Failed("Checksum verification failed for ${comp.name}"))
                         return@flow
                     }
                 }
+
+                // Promote partFile to targetFile atomically
+                if (targetFile.exists()) {
+                    targetFile.delete()
+                }
+                val renamed = partFile.renameTo(targetFile)
+                if (!renamed) {
+                    partFile.copyTo(targetFile, overwrite = true)
+                    partFile.delete()
+                }
+                currentPartFile = null
             }
 
             completeFile.createNewFile()
@@ -183,13 +225,16 @@ class ModelManager(
             if (modelDir.exists() && modelDir.isDirectory && File(modelDir, ".complete").exists()) {
                 manifest.components.all { comp ->
                     val file = File(modelDir, comp.file)
+                    val nested = File(File(modelDir, comp.name), "model.onnx")
                     val isSha256Provided = comp.sha256.isNotBlank() &&
                             comp.sha256.length == 64 &&
                             comp.sha256.all { it in "0123456789abcdefABCDEF" }
                     if (isSha256Provided) {
-                        ChecksumVerifier.verifyFile(file, comp.sha256)
+                        ChecksumVerifier.verifyFile(file, comp.sha256) || ChecksumVerifier.verifyFile(nested, comp.sha256)
+                    } else if (comp.sha256.isNotBlank() && !comp.sha256.startsWith(".")) {
+                        ChecksumVerifier.verifyFile(file, comp.sha256) || ChecksumVerifier.verifyFile(nested, comp.sha256)
                     } else {
-                        file.exists() && file.length() > 0
+                        (file.exists() && file.length() > 0) || (nested.exists() && nested.length() > 0)
                     }
                 }
             } else false
@@ -204,7 +249,13 @@ class ModelManager(
         val dirs = listOfNotNull(baseStorageDir, secondaryStorageDir)
         return dirs.flatMap { dir ->
             dir.listFiles { f ->
-                f.isDirectory && (File(f, ".complete").exists() || REQUIRED_DIFFUSION_ONNX_FILES.all { File(f, it).exists() })
+                f.isDirectory && (
+                    File(f, ".complete").exists() ||
+                    REQUIRED_DIFFUSION_ONNX_FILES.all { comp ->
+                        val baseComp = comp.removeSuffix(".onnx")
+                        File(f, comp).exists() || File(File(f, baseComp), "model.onnx").exists()
+                    }
+                )
             }?.map { it.name } ?: emptyList()
         }.distinct()
     }

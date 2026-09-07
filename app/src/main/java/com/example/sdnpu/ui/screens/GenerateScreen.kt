@@ -3,6 +3,7 @@ package com.example.sdnpu.ui.screens
 import android.graphics.BitmapFactory
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,6 +21,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import com.example.sdnpu.model.DownloadStatus
 import com.example.sdnpu.model.ModelVariants
 import com.example.sdnpu.pipeline.GenerationParams
 import com.example.sdnpu.pipeline.PipelineState
@@ -35,6 +37,7 @@ fun GenerateScreen(
     params: GenerationParams,
     pipelineState: PipelineState,
     localModels: List<String>,
+    downloadStatus: DownloadStatus = DownloadStatus.Idle,
     thermalStatus: ThermalStatus = ThermalStatus.NONE,
     batteryLevel: Int = 100,
     isCharging: Boolean = true,
@@ -64,6 +67,68 @@ fun GenerateScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Text("Stable Diffusion on NPU", style = MaterialTheme.typography.titleLarge)
+
+        // Download in background status banner
+        val isDownloading = downloadStatus is DownloadStatus.FetchingManifest ||
+                downloadStatus is DownloadStatus.DownloadingComponent ||
+                downloadStatus is DownloadStatus.VerifyingChecksum
+        if (isDownloading) {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onOpenDownloadDialog?.invoke(params.modelId) }
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Model Download in Progress",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                        Text(
+                            text = "Tap to view",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                    when (downloadStatus) {
+                        is DownloadStatus.DownloadingComponent -> {
+                            val downloadedMb = downloadStatus.bytesRead / (1024 * 1024)
+                            val totalMb = if (downloadStatus.totalBytes > 0) downloadStatus.totalBytes / (1024 * 1024) else 0
+                            val progressText = if (totalMb > 0) {
+                                "${downloadStatus.componentName}: ${downloadStatus.progressPercent}% ($downloadedMb / $totalMb MB)"
+                            } else {
+                                "${downloadStatus.componentName} (${downloadStatus.progressPercent}%)"
+                            }
+                            Text(progressText, style = MaterialTheme.typography.bodySmall)
+                            LinearProgressIndicator(
+                                progress = { downloadStatus.progressPercent / 100f },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        is DownloadStatus.FetchingManifest -> {
+                            Text("Connecting & checking manifest...", style = MaterialTheme.typography.bodySmall)
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        }
+                        is DownloadStatus.VerifyingChecksum -> {
+                            Text("Verifying integrity for ${downloadStatus.componentName}...", style = MaterialTheme.typography.bodySmall)
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        }
+                        else -> {}
+                    }
+                }
+            }
+        }
 
         // Thermal / Battery Alert Banner
         if (thermalWarningEnabled && (thermalStatus.isThrottlingSevere() || (isLowBattery && !isCharging))) {

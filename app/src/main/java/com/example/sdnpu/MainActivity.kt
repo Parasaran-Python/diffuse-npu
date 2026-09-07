@@ -4,6 +4,9 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.*
@@ -23,6 +26,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleAutoGenerate(intent)
         setContent {
             val appSettings by viewModel.appSettings.collectAsState()
             val isDark = when (appSettings.darkThemeMode.uppercase()) {
@@ -77,6 +81,7 @@ class MainActivity : ComponentActivity() {
                                 params = params,
                                 pipelineState = pipelineState,
                                 localModels = localModels,
+                                downloadStatus = downloadStatus,
                                 thermalStatus = thermalStatus,
                                 batteryLevel = batteryLevel,
                                 isCharging = isCharging,
@@ -139,6 +144,24 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleAutoGenerate(intent)
+    }
+
+    private fun handleAutoGenerate(intent: android.content.Intent?) {
+        if (intent?.getBooleanExtra("auto_generate", false) == true) {
+            val prompt = intent.getStringExtra("prompt") ?: "A serene Japanese garden"
+            android.util.Log.i("MainActivity", "handleAutoGenerate received: prompt='$prompt'")
+            lifecycleScope.launch {
+                delay(600)
+                viewModel.updateParams(viewModel.params.value.copy(prompt = prompt))
+                viewModel.startGeneration()
             }
         }
     }
