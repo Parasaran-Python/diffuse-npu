@@ -19,6 +19,7 @@ import com.example.sdnpu.pipeline.PipelineManager
 import com.example.sdnpu.pipeline.PipelineState
 import com.example.sdnpu.pipeline.SamplerType
 import com.example.sdnpu.pipeline.UpscaleMode
+import com.example.sdnpu.service.ModelDownloadService
 import com.example.sdnpu.system.DeviceMonitor
 import com.example.sdnpu.system.GenerationNotificationManager
 import com.example.sdnpu.system.ThermalStatus
@@ -34,7 +35,7 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 class MainViewModel(
-    application: Application? = null,
+    private val application: Application? = null,
     private val modelManager: ModelManager = ModelManager(
         baseStorageDir = if (application != null) {
             application.getExternalFilesDir(null)?.let { File(it, "models") } ?: File(application.filesDir, "models")
@@ -109,6 +110,9 @@ class MainViewModel(
 
     private var generationJob: Job? = null
     private var downloadJob: Job? = null
+    private var lastDownloadUrl: String? = null
+    private var lastDownloadModelId: String? = null
+    private var lastManifest: ModelManifest? = null
 
     private val _params = MutableStateFlow(
         GenerationParams(
@@ -189,6 +193,16 @@ class MainViewModel(
                 }
             }.collect { profile ->
                 QnnNativeBridge.setHtpPerformanceProfile(profile)
+            }
+        }
+        viewModelScope.launch {
+            ModelDownloadService.downloadStatus.collect { status ->
+                if (application != null) {
+                    _downloadStatus.value = status
+                    if (status is DownloadStatus.Completed) {
+                        refreshLocalModels()
+                    }
+                }
             }
         }
     }
@@ -324,6 +338,15 @@ class MainViewModel(
     }
 
     fun downloadModelFromUrl(url: String, modelId: String? = null) {
+        lastDownloadUrl = url
+        lastDownloadModelId = modelId
+
+        val app = application
+        if (app != null) {
+            ModelDownloadService.startDownload(app, url, modelId)
+            return
+        }
+
         if (downloadJob?.isActive == true) return
 
         downloadJob = viewModelScope.launch {
@@ -348,6 +371,7 @@ class MainViewModel(
                     }
                 }
             }
+            lastManifest = manifest
             modelManager.downloadModel(manifest, url).collect { status ->
                 _downloadStatus.value = status
                 if (status is DownloadStatus.Completed) {
@@ -357,10 +381,62 @@ class MainViewModel(
         }
     }
 
+    fun pauseDownload() {
+        val app = application
+        if (app != null) {
+            ModelDownloadService.pauseDownload(app)
+        } else {
+            modelManager.pauseDownload()
+        }
+    }
+
+    fun resumeDownload() {
+        val app = application
+        if (app != null) {
+            ModelDownloadService.resumeDownload(app)
+        } else {
+            val url = lastDownloadUrl ?: return
+            downloadJob?.cancel()
+            downloadJob = viewModelScope.launch {
+                val manifest = lastManifest ?: run {
+                    val manifestRes = modelManager.fetchManifest(url)
+                    if (manifestRes.isSuccess) {
+                        manifestRes.getOrThrow()
+                    } else {
+                        when (lastDownloadModelId ?: "sdturbo") {
+                            "sdturbo" -> ModelManifest.sdturbo()
+                            "dreamshaper_v8_base" -> ModelManifest.dreamshaper_v8_base()
+                            "dreamshaper_v8_anime" -> ModelManifest.dreamshaper_v8_anime()
+                            "dreamshaper_v8_realistic" -> ModelManifest.dreamshaper_v8_realistic()
+                            else -> {
+                                _downloadStatus.value = DownloadStatus.Failed("Cannot fetch manifest: ${manifestRes.exceptionOrNull()?.message}")
+                                return@launch
+                            }
+                        }
+                    }
+                }
+                lastManifest = manifest
+                modelManager.resumeDownload(manifest, url).collect { status ->
+                    _downloadStatus.value = status
+                    if (status is DownloadStatus.Completed) {
+                        refreshLocalModels()
+                    }
+                }
+            }
+        }
+    }
+
     fun cancelDownload() {
-        downloadJob?.cancel()
-        downloadJob = null
-        _downloadStatus.value = DownloadStatus.Idle
+        val app = application
+        if (app != null) {
+            ModelDownloadService.cancelDownload(app)
+            _downloadStatus.value = DownloadStatus.Idle
+        } else {
+            modelManager.pauseDownload()
+            downloadJob?.cancel()
+            downloadJob = null
+            _downloadStatus.value = DownloadStatus.Idle
+        }
     }
 
     fun isRealESRGANAvailable(scale: Int): Boolean = modelManager.isRealESRGANAvailable(scale)
