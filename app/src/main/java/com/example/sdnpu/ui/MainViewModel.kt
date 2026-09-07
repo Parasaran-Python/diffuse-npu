@@ -64,7 +64,7 @@ class MainViewModel(
     } else {
         SettingsRepository(
             dataStore = androidx.datastore.preferences.core.PreferenceDataStoreFactory.create(
-                produceFile = { File(System.getProperty("java.io.tmpdir"), "test_settings.preferences_pb") }
+                produceFile = { File(System.getProperty("java.io.tmpdir"), "test_settings_${System.nanoTime()}.preferences_pb") }
             )
         )
     },
@@ -78,8 +78,9 @@ class MainViewModel(
         modelsDir = if (application != null) {
             application.getExternalFilesDir(null)?.let { File(it, "models") } ?: File(application.filesDir, "models")
         } else File(System.getProperty("java.io.tmpdir"), "models"),
-        outputDir = if (application != null) File(application.filesDir, "generations")
-        else File(System.getProperty("java.io.tmpdir"), "generations"),
+        outputDir = if (application != null) {
+            application.getExternalFilesDir(null)?.let { File(it, "generations") } ?: File(application.filesDir, "generations")
+        } else File(System.getProperty("java.io.tmpdir"), "generations"),
         historyRepository = historyRepository,
         secondaryModelsDir = if (application != null) File(application.filesDir, "models") else null
     )
@@ -90,12 +91,20 @@ class MainViewModel(
         application = application,
         modelManager = ModelManager(
             baseStorageDir = application.getExternalFilesDir(null)?.let { File(it, "models") } ?: File(application.filesDir, "models"),
-            secondaryStorageDir = File(application.filesDir, "models")
+            secondaryStorageDir = File(application.filesDir, "models"),
+            fallbackStorageDir = File(application.cacheDir, "models")
         ),
         historyRepository = HistoryRepository.getInstance(application),
         settingsRepository = SettingsRepository.getInstance(application),
         deviceMonitor = DeviceMonitor.getInstance(application),
-        notificationManager = GenerationNotificationManager(application)
+        notificationManager = GenerationNotificationManager(application),
+        pipelineManager = PipelineManager(
+            modelsDir = application.getExternalFilesDir(null)?.let { File(it, "models") } ?: File(application.filesDir, "models"),
+            outputDir = application.getExternalFilesDir(null)?.let { File(it, "generations") } ?: File(application.filesDir, "generations"),
+            historyRepository = HistoryRepository.getInstance(application),
+            secondaryModelsDir = File(application.filesDir, "models"),
+            fallbackModelsDir = File(application.cacheDir, "models")
+        )
     )
 
     private var generationJob: Job? = null
