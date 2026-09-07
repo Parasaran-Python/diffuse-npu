@@ -146,9 +146,10 @@ fun FullScreenImageViewer(
                     },
                 contentAlignment = Alignment.Center
             ) {
-                if (bitmap != null) {
+                val imageBitmap = remember(bitmap) { bitmap?.asImageBitmap() }
+                if (imageBitmap != null) {
                     Image(
-                        bitmap = bitmap.asImageBitmap(),
+                        bitmap = imageBitmap,
                         contentDescription = prompt ?: "Full screen image",
                         modifier = Modifier
                             .fillMaxSize()

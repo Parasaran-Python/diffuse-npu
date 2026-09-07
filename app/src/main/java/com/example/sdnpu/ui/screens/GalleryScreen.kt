@@ -69,6 +69,7 @@ fun GalleryScreen(
     var inspectingRecord by remember { mutableStateOf<GenerationEntity?>(null) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var fullScreenViewerFile by remember { mutableStateOf<Pair<File, String?>?>(null) }
+    var isSavingImage by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -364,17 +365,24 @@ fun GalleryScreen(
                         ) {
                             FilledTonalButton(
                                 onClick = {
+                                    if (isSavingImage) return@FilledTonalButton
+                                    isSavingImage = true
                                     scope.launch {
-                                        val result = withContext(Dispatchers.IO) {
-                                            MediaExporter.saveImageToPublicGallery(context, file, record.prompt)
-                                        }
-                                        result.onSuccess {
-                                            Toast.makeText(context, "Saved to Pictures/SD_NPU", Toast.LENGTH_SHORT).show()
-                                        }.onFailure { e ->
-                                            Toast.makeText(context, "Failed to save: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        try {
+                                            val result = withContext(Dispatchers.IO) {
+                                                MediaExporter.saveImageToPublicGallery(context, file, record.prompt)
+                                            }
+                                            result.onSuccess {
+                                                Toast.makeText(context, "Saved to Pictures/SD_NPU", Toast.LENGTH_SHORT).show()
+                                            }.onFailure { e ->
+                                                Toast.makeText(context, "Failed to save: ${e.message}", Toast.LENGTH_SHORT).show()
+                                            }
+                                        } finally {
+                                            isSavingImage = false
                                         }
                                     }
                                 },
+                                enabled = !isSavingImage,
                                 modifier = Modifier.weight(1f)
                             ) {
                                 Icon(Icons.Default.Download, contentDescription = "Save to Gallery", modifier = Modifier.size(16.dp))
