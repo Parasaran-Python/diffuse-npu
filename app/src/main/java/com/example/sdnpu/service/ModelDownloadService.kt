@@ -327,7 +327,6 @@ class ModelDownloadService : Service() {
                 updateNotification(status)
             }
             is DownloadStatus.DownloadingComponent -> {
-                acquireWakeLock()
                 if (!shouldThrottleNotification(status.progressPercent)) {
                     updateNotification(status)
                 }
@@ -337,7 +336,6 @@ class ModelDownloadService : Service() {
                 updateNotification(status)
             }
             is DownloadStatus.VerifyingChecksum -> {
-                acquireWakeLock()
                 updateNotification(status)
             }
             is DownloadStatus.Completed -> {

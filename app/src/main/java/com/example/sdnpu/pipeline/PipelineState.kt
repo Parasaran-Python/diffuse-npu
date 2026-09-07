@@ -20,12 +20,14 @@ sealed class PipelineState {
     data class Completed(
         val message: String = "Generation finished successfully",
         val executionTimeMs: Long = 0,
-        val imagePath: String? = null
+        val imagePath: String? = null,
+        val prompt: String = ""
     ) : PipelineState() {
-        constructor(savedFile: File, totalDurationMs: Long) : this(
+        constructor(savedFile: File, totalDurationMs: Long, prompt: String = "") : this(
             message = "Generation finished successfully",
             executionTimeMs = totalDurationMs,
-            imagePath = savedFile.absolutePath
+            imagePath = savedFile.absolutePath,
+            prompt = prompt
         )
     }
     data class Error(val error: String) : PipelineState()
