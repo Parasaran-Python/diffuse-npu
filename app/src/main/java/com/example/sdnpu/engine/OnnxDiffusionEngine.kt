@@ -32,6 +32,9 @@ object OnnxDiffusionEngine {
 
     const val VAE_SCALE_FACTOR = 0.18215f
 
+    fun isLcmModel(modelId: String): Boolean =
+        modelId.startsWith("dreamshaper", ignoreCase = true) || modelId.contains("lcm", ignoreCase = true)
+
     fun cancel() {
         isCancelled = true
     }
@@ -299,10 +302,37 @@ object OnnxDiffusionEngine {
         onStep: ((Int, Int) -> Unit)? = null,
         env: OrtEnvironment = OrtEnvironment.getEnvironment()
     ): FloatArray {
-        val schedule = SdTurboScheduler.getSchedule(steps)
+        return denoiseLoop(
+            unetSession = unetSession,
+            latents = latents,
+            textEmbeddings = textEmbeddings,
+            steps = steps,
+            modelId = "sdturbo",
+            cfgScale = 1.0f,
+            seed = null,
+            onStep = onStep,
+            env = env
+        )
+    }
+
+    fun denoiseLoop(
+        unetSession: OrtSession,
+        latents: FloatArray,
+        textEmbeddings: FloatArray,
+        steps: Int,
+        modelId: String,
+        cfgScale: Float = 1.0f,
+        seed: Long? = null,
+        onStep: ((Int, Int) -> Unit)? = null,
+        env: OrtEnvironment = OrtEnvironment.getEnvironment()
+    ): FloatArray {
+        val isLcm = isLcmModel(modelId) || unetSession.inputNames.contains("timestep_cond")
+        val lcmSchedule = if (isLcm) LcmScheduler.getSchedule(steps) else null
+        val sdTurboSchedule = if (!isLcm) SdTurboScheduler.getSchedule(steps) else null
+        val numSteps = if (isLcm) lcmSchedule!!.timesteps.size else sdTurboSchedule!!.timesteps.size
+
         val currentLatents = latents.clone()
         val tempLatents = FloatArray(currentLatents.size)
-        val numSteps = schedule.timesteps.size
 
         val hiddenName = unetSession.inputNames.firstOrNull {
             it.contains("hidden") || it.contains("context")
@@ -315,17 +345,36 @@ object OnnxDiffusionEngine {
             longArrayOf(1, 77, textEmbeddings.size / 77L)
         )
 
+        val condName = if (unetSession.inputNames.contains("timestep_cond")) {
+            "timestep_cond"
+        } else {
+            unetSession.inputNames.firstOrNull { it.contains("timestep_cond") }
+        }
+
+        val condTensor = try {
+            if (condName != null) {
+                val guidanceEmbedding = LcmScheduler.getGuidanceEmbedding(cfgScale)
+                val condInfo = unetSession.inputInfo[condName]?.info as? TensorInfo
+                createFloatTensor(env, condInfo?.type, guidanceEmbedding, longArrayOf(1, 256))
+            } else {
+                null
+            }
+        } catch (e: Throwable) {
+            hiddenTensor.close()
+            throw e
+        }
+
         try {
             for (stepIndex in 0 until numSteps) {
                 if (isCancelled) {
                     throw CancellationException("Generation cancelled")
                 }
 
-                val sigma = schedule.sigmas[stepIndex]
-                val nextSigma = schedule.sigmas[stepIndex + 1]
-                val timestepVal = schedule.timesteps[stepIndex]
-
-                val scaledLatents = schedule.scaleModelInput(currentLatents, stepIndex)
+                val scaledLatents = if (isLcm) {
+                    currentLatents
+                } else {
+                    sdTurboSchedule!!.scaleModelInput(currentLatents, stepIndex)
+                }
 
                 val sampleName = unetSession.inputNames.firstOrNull {
                     it.contains("sample") || it.contains("latent")
@@ -340,22 +389,40 @@ object OnnxDiffusionEngine {
 
                 val timestepName = unetSession.inputNames.firstOrNull { it.contains("time") } ?: "timestep"
                 val timeInfo = unetSession.inputInfo[timestepName]?.info as? TensorInfo
-                val timestepTensor = if (timeInfo?.type == OnnxJavaType.INT64) {
-                    val buf = LongBuffer.wrap(longArrayOf(timestepVal.toLong()))
-                    OnnxTensor.createTensor(env, buf, longArrayOf(1))
-                } else if (timeInfo?.type == OnnxJavaType.FLOAT16) {
-                    val buf = ShortBuffer.wrap(shortArrayOf(floatToFp16(timestepVal)))
-                    OnnxTensor.createTensor(env, buf, longArrayOf(1), OnnxJavaType.FLOAT16)
+                val timestepTensor = if (isLcm) {
+                    val tVal = lcmSchedule!!.timesteps[stepIndex]
+                    if (timeInfo?.type == OnnxJavaType.INT64) {
+                        val buf = LongBuffer.wrap(longArrayOf(tVal))
+                        OnnxTensor.createTensor(env, buf, longArrayOf(1))
+                    } else if (timeInfo?.type == OnnxJavaType.FLOAT16) {
+                        val buf = ShortBuffer.wrap(shortArrayOf(floatToFp16(tVal.toFloat())))
+                        OnnxTensor.createTensor(env, buf, longArrayOf(1), OnnxJavaType.FLOAT16)
+                    } else {
+                        val buf = FloatBuffer.wrap(floatArrayOf(tVal.toFloat()))
+                        OnnxTensor.createTensor(env, buf, longArrayOf(1))
+                    }
                 } else {
-                    val buf = FloatBuffer.wrap(floatArrayOf(timestepVal))
-                    OnnxTensor.createTensor(env, buf, longArrayOf(1))
+                    val tVal = sdTurboSchedule!!.timesteps[stepIndex]
+                    if (timeInfo?.type == OnnxJavaType.INT64) {
+                        val buf = LongBuffer.wrap(longArrayOf(tVal.toLong()))
+                        OnnxTensor.createTensor(env, buf, longArrayOf(1))
+                    } else if (timeInfo?.type == OnnxJavaType.FLOAT16) {
+                        val buf = ShortBuffer.wrap(shortArrayOf(floatToFp16(tVal)))
+                        OnnxTensor.createTensor(env, buf, longArrayOf(1), OnnxJavaType.FLOAT16)
+                    } else {
+                        val buf = FloatBuffer.wrap(floatArrayOf(tVal))
+                        OnnxTensor.createTensor(env, buf, longArrayOf(1))
+                    }
                 }
 
-                val inputs = mapOf(
+                val inputs = mutableMapOf<String, OnnxTensor>(
                     sampleName to sampleTensor,
                     timestepName to timestepTensor,
                     hiddenName to hiddenTensor
                 )
+                if (condName != null && condTensor != null) {
+                    inputs[condName] = condTensor
+                }
 
                 try {
                     val result = unetSession.run(inputs)
@@ -363,7 +430,16 @@ object OnnxDiffusionEngine {
                         val noisePredTensor = (res.get(0) as? OnnxTensor) ?: (res.iterator().next().value as OnnxTensor)
                         val noisePred = extractFloatsFromTensor(noisePredTensor)
 
-                        schedule.step(currentLatents, noisePred, stepIndex, tempLatents)
+                        if (isLcm) {
+                            val stepNoise = if (stepIndex < numSteps - 1) {
+                                GaussianNoise.generate(currentLatents.size, seed?.let { it + stepIndex + 1 })
+                            } else {
+                                null
+                            }
+                            LcmScheduler.step(currentLatents, noisePred, stepIndex, lcmSchedule!!, stepNoise, tempLatents)
+                        } else {
+                            sdTurboSchedule!!.step(currentLatents, noisePred, stepIndex, tempLatents)
+                        }
                         System.arraycopy(tempLatents, 0, currentLatents, 0, currentLatents.size)
                     }
                 } finally {
@@ -375,6 +451,7 @@ object OnnxDiffusionEngine {
             }
         } finally {
             hiddenTensor.close()
+            condTensor?.close()
         }
 
         return currentLatents
@@ -461,13 +538,29 @@ object OnnxDiffusionEngine {
         if (isCancelled) throw CancellationException("Generation cancelled")
 
         // 2. Initial Latents
-        val schedule = SdTurboScheduler.getSchedule(params.steps)
+        val isLcm = isLcmModel(params.modelId)
         val rawNoise = GaussianNoise.generate(4 * 64 * 64, seed)
-        val initialLatents = FloatArray(rawNoise.size) { i -> rawNoise[i] * schedule.initNoiseSigma }
+        val initialLatents = if (isLcm) {
+            val lcmSchedule = LcmScheduler.getSchedule(params.steps)
+            rawNoise
+        } else {
+            val schedule = SdTurboScheduler.getSchedule(params.steps)
+            FloatArray(rawNoise.size) { i -> rawNoise[i] * schedule.initNoiseSigma }
+        }
 
-        // 3. UNet Session (1-4 steps SD-Turbo)
+        // 3. UNet Session
         val denoisedLatents = createSession(env, unetFile).use { unetSession ->
-            denoiseLoop(unetSession, initialLatents, textEmbeddings, params.steps, onStep, env)
+            denoiseLoop(
+                unetSession = unetSession,
+                latents = initialLatents,
+                textEmbeddings = textEmbeddings,
+                steps = params.steps,
+                modelId = params.modelId,
+                cfgScale = params.cfgScale,
+                seed = seed,
+                onStep = onStep,
+                env = env
+            )
         }
 
         if (isCancelled) throw CancellationException("Generation cancelled")

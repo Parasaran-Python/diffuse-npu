@@ -83,4 +83,26 @@ class LcmSchedulerTest {
             assertTrue(abs(outSampleWithNoise[i] - outSampleWithoutNoise[i]) > 0.1f)
         }
     }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun testGuidanceEmbeddingOddDimensionThrows() {
+        LcmScheduler.getGuidanceEmbedding(1.0f, 255)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun testGuidanceEmbeddingTooSmallDimensionThrows() {
+        LcmScheduler.getGuidanceEmbedding(1.0f, 2)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun testStepInsufficientNoiseSizeThrows() {
+        val schedule = LcmScheduler.getSchedule(4)
+        val sample = FloatArray(16) { 1.0f }
+        val modelOutput = FloatArray(16) { 0.1f }
+        val outSample = FloatArray(16)
+        val insufficientNoise = FloatArray(8) { 1.0f } // size 8 < count 16
+
+        LcmScheduler.step(sample, modelOutput, 0, schedule, insufficientNoise, outSample)
+    }
 }
+

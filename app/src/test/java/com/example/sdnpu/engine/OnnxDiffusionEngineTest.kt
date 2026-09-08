@@ -118,4 +118,55 @@ class OnnxDiffusionEngineTest {
             tempDir.deleteRecursively()
         }
     }
+
+    @Test
+    fun testIsLcmModelDetection() {
+        assertTrue(OnnxDiffusionEngine.isLcmModel("dreamshaper_v8_base"))
+        assertTrue(OnnxDiffusionEngine.isLcmModel("dreamshaper_lcm"))
+        assertTrue(OnnxDiffusionEngine.isLcmModel("lcm_sd15"))
+        org.junit.Assert.assertFalse(OnnxDiffusionEngine.isLcmModel("sdturbo"))
+    }
+
+    @Test
+    fun testIsLcmModelDetectionVariations() {
+        assertTrue(OnnxDiffusionEngine.isLcmModel("DreamShaper_v8_base"))
+        assertTrue(OnnxDiffusionEngine.isLcmModel("LCM_SD15"))
+        org.junit.Assert.assertFalse(OnnxDiffusionEngine.isLcmModel("sdxl_turbo"))
+    }
+
+    @Test
+    fun testSimulationWithDreamshaperProducesArgbBytes() {
+        val tempDir = File(System.getProperty("java.io.tmpdir"), "test_fixture_dreamshaper_${System.currentTimeMillis()}")
+        TestModelFixtures.stageModel(tempDir, "dreamshaper_v8_base")
+        val modelDir = File(tempDir, "dreamshaper_v8_base")
+        OnnxDiffusionEngine.testSimulationEnabled = true
+
+        try {
+            val progressSteps = mutableListOf<Pair<Int, Int>>()
+            val params = GenerationParams(
+                prompt = "a majestic dragon",
+                modelId = "dreamshaper_v8_base",
+                steps = 4,
+                cfgScale = 1.5f,
+                seed = 42L
+            )
+            val bytes = OnnxDiffusionEngine.generate(params, modelDir) { step, total ->
+                progressSteps.add(step to total)
+            }
+
+            assertEquals(512 * 512 * 4, bytes.size)
+            assertEquals(4, progressSteps.size)
+            assertEquals(1 to 4, progressSteps.first())
+            assertEquals(4 to 4, progressSteps.last())
+
+            for (i in 3 until bytes.size step 4) {
+                assertEquals(255.toByte(), bytes[i])
+            }
+        } finally {
+            OnnxDiffusionEngine.testSimulationEnabled = false
+            tempDir.deleteRecursively()
+        }
+    }
 }
+
+

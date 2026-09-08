@@ -71,6 +71,7 @@ object LcmScheduler {
     }
 
     fun getGuidanceEmbedding(guidanceScale: Float, embeddingDim: Int = 256): FloatArray {
+        require(embeddingDim >= 4 && embeddingDim % 2 == 0) { "embeddingDim must be an even integer >= 4" }
         val embedding = FloatArray(embeddingDim)
         val w = (guidanceScale - 1.0f) * 1000.0f
         val halfDim = embeddingDim / 2
@@ -117,7 +118,9 @@ object LcmScheduler {
 
         val (cSkip, cOut) = getBoundaryScalings(timestep)
         val count = minOf(sample.size, modelOutput.size, outSample.size)
+        require(generatorNoise == null || generatorNoise.size >= count) { "generatorNoise size must be >= count" }
         val isFinalStep = stepIndex == schedule.numInferenceSteps - 1
+
 
         for (i in 0 until count) {
             // 1. Predicted original sample x_0
