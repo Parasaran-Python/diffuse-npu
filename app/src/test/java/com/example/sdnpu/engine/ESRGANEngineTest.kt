@@ -166,4 +166,76 @@ class ESRGANEngineTest {
         assertTrue("Initial progress should be >= 0.0f", progressValues.first() >= 0.0f)
         assertTrue("Final progress should reach 1.0f", progressValues.last() >= 0.99f)
     }
+
+    @Test
+    fun testUpscaleWithOnnxModelDelegatesToOnnxEsrganEngine() {
+        val inW = 16
+        val inH = 16
+        val scale = 2
+        val inputBytes = ByteArray(inW * inH * 4) { (it % 256).toByte() }
+        val tempDir = File(System.getProperty("java.io.tmpdir"), "esrgan_onnx_test_${System.currentTimeMillis()}")
+        tempDir.mkdirs()
+        File(tempDir, "model.onnx").writeBytes(ByteArray(100))
+
+        OnnxEsrganEngine.testSimulationEnabled = true
+        try {
+            val progressList = mutableListOf<Float>()
+            val output = ESRGANEngine.upscale(inputBytes, inW, inH, scale, modelDir = tempDir) { progress ->
+                progressList.add(progress)
+            }
+            assertNotNull(output)
+            assertEquals((inW * scale) * (inH * scale) * 4, output.size)
+            assertTrue(progressList.isNotEmpty())
+        } finally {
+            OnnxEsrganEngine.testSimulationEnabled = false
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun testUpscaleWithFailingOnnxModelFallsBackToBicubic() {
+        val inW = 16
+        val inH = 16
+        val scale = 2
+        val inputBytes = ByteArray(inW * inH * 4) { (it % 256).toByte() }
+        val tempDir = File(System.getProperty("java.io.tmpdir"), "esrgan_onnx_fail_test_${System.currentTimeMillis()}")
+        tempDir.mkdirs()
+        // Dummy 100-byte file will fail ONNX session creation or simulation when testSimulationEnabled = false
+        File(tempDir, "RealESRGAN_x2plus.fp16.onnx").writeBytes(ByteArray(100))
+
+        OnnxEsrganEngine.testSimulationEnabled = false
+        try {
+            val output = ESRGANEngine.upscale(inputBytes, inW, inH, scale, modelDir = tempDir)
+            assertNotNull(output)
+            assertEquals((inW * scale) * (inH * scale) * 4, output.size)
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun testCancellationWithOnnxModelDirectory() {
+        val inW = 16
+        val inH = 16
+        val scale = 2
+        val inputBytes = ByteArray(inW * inH * 4)
+        val tempDir = File(System.getProperty("java.io.tmpdir"), "esrgan_onnx_cancel_${System.currentTimeMillis()}")
+        tempDir.mkdirs()
+        File(tempDir, "model.onnx").writeBytes(ByteArray(100))
+
+        OnnxEsrganEngine.testSimulationEnabled = true
+        try {
+            ESRGANEngine.upscale(inputBytes, inW, inH, scale, modelDir = tempDir) { progress ->
+                if (progress >= 0.1f) {
+                    ESRGANEngine.cancel()
+                }
+            }
+            fail("Expected CancellationException")
+        } catch (e: CancellationException) {
+            // Expected
+        } finally {
+            OnnxEsrganEngine.testSimulationEnabled = false
+            tempDir.deleteRecursively()
+        }
+    }
 }

@@ -1,5 +1,6 @@
 package com.example.sdnpu.engine
 
+import android.util.Log
 import kotlinx.coroutines.CancellationException
 import java.io.File
 import kotlin.math.abs
@@ -18,6 +19,7 @@ object ESRGANEngine {
 
     fun cancel() {
         isCancelled = true
+        OnnxEsrganEngine.cancel()
         if (QnnNativeBridge.isLibraryLoaded()) {
             try {
                 nativeCancelEsrgan()
@@ -69,6 +71,19 @@ object ESRGANEngine {
             }
         }
 
+        val onnxFile = modelDir?.let { dir ->
+            listOf(File(dir, "model.onnx"), File(dir, "RealESRGAN_x${scale}plus.fp16.onnx")).firstOrNull { it.exists() && it.length() > 0 }
+        }
+        if (onnxFile != null) {
+            try {
+                return OnnxEsrganEngine.upscale(inputRgba, inWidth, inHeight, scale, modelDir, onProgress)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Log.w("ESRGANEngine", "ONNX NPU upscaling failed, falling back to bicubic", t)
+            }
+        }
+
         if (isCancelled) {
             throw CancellationException("Upscaling cancelled")
         }
@@ -86,7 +101,7 @@ object ESRGANEngine {
         }
     }
 
-    private fun upscaleBicubicJvm(
+    internal fun upscaleBicubicJvm(
         inputRgba: ByteArray,
         inWidth: Int,
         inHeight: Int,
