@@ -572,4 +572,72 @@ class ModelManagerTest {
         assertEquals("unet", paused.componentName)
         assertEquals(0L, paused.downloadedBytes)
     }
+
+    @Test
+    fun testRealESRGANCandidateUrlFallback() = runBlocking {
+        val testContent = "realesrgan weights"
+        val manifest = ModelManifest.realesrganX2Plus()
+
+        // candidate 1: /model.onnx -> 404
+        server.enqueue(MockResponse().setResponseCode(404))
+        // candidate 2: /realesrgan_x2plus.fp16.onnx -> 404
+        server.enqueue(MockResponse().setResponseCode(404))
+        // candidate 3: /realesrgan_x2plus.onnx -> 404
+        server.enqueue(MockResponse().setResponseCode(404))
+        // candidate 4: /RealESRGAN_x2plus.fp16.onnx -> 200
+        server.enqueue(MockResponse().setResponseCode(200).setBody(testContent))
+
+        val baseUrl = server.url("/").toString()
+        val statuses = modelManager.downloadModel(manifest, baseUrl).toList()
+
+        assertTrue(statuses.any { it is DownloadStatus.Completed })
+        val downloadedFile = File(File(modelsDir, "realesrgan_x2plus"), "model.onnx")
+        assertTrue(downloadedFile.exists())
+        assertEquals(testContent, downloadedFile.readText())
+    }
+
+    @Test
+    fun testIsRealESRGANAvailableWithOnnx() {
+        val esrgan2xDir = File(modelsDir, "realesrgan_x2plus").apply { mkdirs() }
+        File(esrgan2xDir, "model.onnx").writeText("onnx weights")
+        assertTrue(modelManager.isRealESRGANAvailable(2))
+        assertFalse(modelManager.isRealESRGANAvailable(4))
+
+        val esrgan4xDir = File(modelsDir, "realesrgan_x4plus").apply { mkdirs() }
+        File(esrgan4xDir, "RealESRGAN_x4plus.fp16.onnx").writeText("fp16 onnx weights")
+        assertTrue(modelManager.isRealESRGANAvailable(4))
+    }
+
+    @Test
+    fun testIsModelAvailable() {
+        assertFalse(modelManager.isModelAvailable("sdturbo"))
+        assertFalse(modelManager.isModelAvailable("dreamshaper_v8_base"))
+        assertFalse(modelManager.isModelAvailable("realesrgan_x2plus"))
+
+        // SD-Turbo with 3 onnx files
+        val sdDir = File(modelsDir, "sdturbo").apply { mkdirs() }
+        File(sdDir, "text_encoder.onnx").writeText("te")
+        File(sdDir, "unet.onnx").writeText("unet")
+        File(sdDir, "vae_decoder.onnx").writeText("vae")
+        assertTrue(modelManager.isModelAvailable("sdturbo"))
+
+        // DreamShaper with .complete
+        val dsDir = File(modelsDir, "dreamshaper_v8_base").apply { mkdirs() }
+        File(dsDir, ".complete").createNewFile()
+        assertTrue(modelManager.isModelAvailable("dreamshaper_v8_base"))
+
+        // RealESRGAN with model.onnx
+        val esrganDir = File(modelsDir, "realesrgan_x2plus").apply { mkdirs() }
+        File(esrganDir, "model.onnx").writeText("esrgan")
+        assertTrue(modelManager.isModelAvailable("realesrgan_x2plus"))
+    }
+
+    @Test
+    fun testLoadLocalManifestForDreamshaperFallback() {
+        val manifest = modelManager.loadLocalManifest("dreamshaper_v8_base")
+        assertNotNull(manifest)
+        assertEquals("dreamshaper_v8_base", manifest?.modelId)
+        assertEquals("ort-1.20", manifest?.qnnSdkVersion)
+        assertEquals(3, manifest?.components?.size)
+    }
 }

@@ -36,7 +36,7 @@ class ModelManifestTest {
         assertEquals("realesrgan_x2plus", manifest.modelId)
         assertEquals(2, manifest.scale)
         assertEquals(1, manifest.components.size)
-        assertEquals("model.bin", manifest.components[0].file)
+        assertEquals("model.onnx", manifest.components[0].file)
         assertEquals("test_sha256_x2", manifest.components[0].sha256)
         assertEquals(true, manifest.isRealESRGAN)
         assertEquals(false, manifest.isStableDiffusion)
@@ -46,7 +46,7 @@ class ModelManifestTest {
         assertEquals("realesrgan_x2plus", manifestCamel.modelId)
         assertEquals(2, manifestCamel.scale)
         assertEquals(1, manifestCamel.components.size)
-        assertEquals("model.bin", manifestCamel.components[0].file)
+        assertEquals("model.onnx", manifestCamel.components[0].file)
     }
 
     @Test
@@ -55,7 +55,7 @@ class ModelManifestTest {
         assertEquals("realesrgan_x4plus", manifest.modelId)
         assertEquals(4, manifest.scale)
         assertEquals(1, manifest.components.size)
-        assertEquals("model.bin", manifest.components[0].file)
+        assertEquals("model.onnx", manifest.components[0].file)
         assertEquals("test_sha256_x4", manifest.components[0].sha256)
         assertEquals(true, manifest.isRealESRGAN)
         assertEquals(false, manifest.isStableDiffusion)
@@ -65,7 +65,7 @@ class ModelManifestTest {
         assertEquals("realesrgan_x4plus", manifestCamel.modelId)
         assertEquals(4, manifestCamel.scale)
         assertEquals(1, manifestCamel.components.size)
-        assertEquals("model.bin", manifestCamel.components[0].file)
+        assertEquals("model.onnx", manifestCamel.components[0].file)
     }
 
     @Test
@@ -90,7 +90,7 @@ class ModelManifestTest {
         assertEquals("realesrgan_x2plus", deserialized.modelId)
         assertEquals(2, deserialized.scale)
         assertEquals(1, deserialized.components.size)
-        assertEquals("model.bin", deserialized.components[0].file)
+        assertEquals("model.onnx", deserialized.components[0].file)
         assertEquals("abc123hash", deserialized.components[0].sha256)
         assertEquals(true, deserialized.isRealESRGAN)
         assertEquals(false, deserialized.isStableDiffusion)
@@ -126,19 +126,68 @@ class ModelManifestTest {
     }
 
     @Test
-    fun testModelDownloadPresets() {
+    fun testDreamshaperV8BaseOnnxComponents() {
+        val manifest = ModelManifest.dreamshaper_v8_base()
+        assertEquals("dreamshaper_v8_base", manifest.modelId)
+        assertEquals("ort-1.20", manifest.qnnSdkVersion)
+        val files = manifest.components.map { it.file }
+        assertTrue(files.contains("text_encoder.onnx"))
+        assertTrue(files.contains("unet.onnx"))
+        assertTrue(files.contains("vae_decoder.onnx"))
+        manifest.components.forEach { comp ->
+            assertTrue("Component ${comp.name} file ${comp.file} must end with .onnx", comp.file.endsWith(".onnx"))
+        }
+    }
+
+    @Test
+    fun testRealESRGANOnnxComponents() {
+        val manifest2x = ModelManifest.realesrganX2Plus()
+        assertEquals("realesrgan_x2plus", manifest2x.modelId)
+        assertEquals("ort-1.20", manifest2x.qnnSdkVersion)
+        assertEquals("model.onnx", manifest2x.components[0].file)
+
+        val manifest4x = ModelManifest.realesrganX4Plus()
+        assertEquals("realesrgan_x4plus", manifest4x.modelId)
+        assertEquals("ort-1.20", manifest4x.qnnSdkVersion)
+        assertEquals("model.onnx", manifest4x.components[0].file)
+    }
+
+    @Test
+    fun testConsolidatedModelVariants() {
+        val variants = ModelVariants.getSdVariants()
+        assertEquals(2, variants.size)
+        val ids = variants.map { it.id }
+        assertEquals(listOf("sdturbo", "dreamshaper_v8_base"), ids)
+        val sdturbo = variants.find { it.id == "sdturbo" }!!
+        assertTrue(sdturbo.isDefault)
+        assertEquals("SD-Turbo (ONNX / LCM)", sdturbo.name)
+        val dreamshaper = variants.find { it.id == "dreamshaper_v8_base" }!!
+        assertEquals("DreamShaper v8 (LCM / ONNX)", dreamshaper.name)
+    }
+
+    @Test
+    fun testVerifiedModelDownloadPresets() {
         val presets = ModelDownloadPresets.getPresets()
-        assertEquals(3, presets.size)
+        val nonCustomPresets = presets.filter { it.id != "custom" }
+        assertTrue(nonCustomPresets.isNotEmpty())
+        nonCustomPresets.forEach { preset ->
+            assertTrue("Preset ${preset.id} defaultUrl should not be blank", preset.defaultUrl.isNotBlank())
+            assertTrue("Preset ${preset.id} defaultUrl should be https", preset.defaultUrl.startsWith("https://"))
+        }
 
-        val sdturboPreset = presets.find { it.id == "sdturbo" }
-        assertNotNull(sdturboPreset)
-        assertEquals("SD-Turbo (ONNX / LCM)", sdturboPreset?.name)
-        assertTrue(sdturboPreset?.defaultUrl?.contains("microsoft/sd-turbo-webnn") == true)
-        assertTrue(sdturboPreset?.isDefault == true)
+        val expectedUrls = mapOf(
+            "sdturbo" to "https://huggingface.co/microsoft/sd-turbo-webnn/resolve/main/",
+            "dreamshaper_v8_base" to "https://huggingface.co/softwareweaver/LCM_Dreamshaper_v7_Olive_Onnx/resolve/main/",
+            "realesrgan_x2plus" to "https://huggingface.co/tamnvcc/RealESRGAN-onnx/resolve/main/onnx/",
+            "realesrgan_x4plus" to "https://huggingface.co/tamnvcc/RealESRGAN-onnx/resolve/main/onnx/",
+            "custom" to ""
+        )
 
-        val customPreset = presets.find { it.id == "custom" }
-        assertNotNull(customPreset)
-        assertEquals("", customPreset?.defaultUrl)
+        expectedUrls.forEach { (id, expectedUrl) ->
+            val preset = presets.find { it.id == id }
+            assertNotNull("Missing preset for $id", preset)
+            assertEquals("URL mismatch for preset $id", expectedUrl, preset?.defaultUrl)
+        }
     }
 }
 

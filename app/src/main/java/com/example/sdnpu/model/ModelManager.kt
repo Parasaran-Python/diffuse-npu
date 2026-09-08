@@ -136,12 +136,21 @@ class ModelManager(
                 }
 
                 val candidateUrls = mutableListOf<String>()
-                candidateUrls.add("$cleanBaseUrl${comp.file}")
-                if (comp.file.endsWith(".onnx")) {
+                if (manifest.isRealESRGAN) {
+                    candidateUrls.add("$cleanBaseUrl${comp.file}")
+                    candidateUrls.add("$cleanBaseUrl${comp.name}.fp16.onnx")
+                    candidateUrls.add("$cleanBaseUrl${comp.name}.onnx")
+                    candidateUrls.add("$cleanBaseUrl${manifest.modelId.replace("realesrgan_x2plus", "RealESRGAN_x2plus")}.fp16.onnx")
+                    candidateUrls.add("$cleanBaseUrl${manifest.modelId.replace("realesrgan_x4plus", "RealESRGAN_x4plus")}.fp16.onnx")
                     candidateUrls.add("$cleanBaseUrl${comp.name}/model.onnx")
-                }
-                if (!comp.file.endsWith(".bin")) {
-                    candidateUrls.add("$cleanBaseUrl${comp.name}.bin")
+                } else {
+                    candidateUrls.add("$cleanBaseUrl${comp.file}")
+                    if (comp.file.endsWith(".onnx")) {
+                        candidateUrls.add("$cleanBaseUrl${comp.name}/model.onnx")
+                    }
+                    if (!comp.file.endsWith(".bin")) {
+                        candidateUrls.add("$cleanBaseUrl${comp.name}.bin")
+                    }
                 }
 
                 var existingBytes = if (partFile.exists()) partFile.length() else 0L
@@ -369,7 +378,11 @@ class ModelManager(
                     REQUIRED_DIFFUSION_ONNX_FILES.all { comp ->
                         val baseComp = comp.removeSuffix(".onnx")
                         File(f, comp).exists() || File(File(f, baseComp), "model.onnx").exists()
-                    }
+                    } ||
+                    (f.name.startsWith("realesrgan") && (
+                        (File(f, "model.onnx").exists() && File(f, "model.onnx").length() > 0) ||
+                        (f.listFiles()?.any { it.isFile && it.name.endsWith(".onnx") && !it.name.endsWith(".part") && it.length() > 0 } == true)
+                    ))
                 )
             }?.map { it.name } ?: emptyList()
         }.distinct()
@@ -388,7 +401,31 @@ class ModelManager(
         val dirs = listOfNotNull(baseStorageDir, secondaryStorageDir, fallbackStorageDir).distinct()
         return dirs.any { dir ->
             val modelDir = File(dir, modelId)
-            modelDir.exists() && File(modelDir, "model.bin").exists() && File(modelDir, ".complete").exists()
+            if (!modelDir.exists() || !modelDir.isDirectory) return@any false
+            val hasComplete = File(modelDir, ".complete").exists()
+            val hasBin = File(modelDir, "model.bin").exists()
+            val hasOnnx = (File(modelDir, "model.onnx").exists() && File(modelDir, "model.onnx").length() > 0) ||
+                    (File(modelDir, "RealESRGAN_x${scale}plus.fp16.onnx").exists() && File(modelDir, "RealESRGAN_x${scale}plus.fp16.onnx").length() > 0) ||
+                    (modelDir.listFiles()?.any { it.isFile && it.name.endsWith(".onnx") && !it.name.endsWith(".part") && it.length() > 0 } == true)
+            (hasComplete && (hasBin || hasOnnx)) || hasOnnx
+        }
+    }
+
+    fun isModelAvailable(modelId: String): Boolean {
+        val dirs = listOfNotNull(baseStorageDir, secondaryStorageDir, fallbackStorageDir).distinct()
+        return dirs.any { dir ->
+            val modelDir = File(dir, modelId)
+            if (!modelDir.exists() || !modelDir.isDirectory) return@any false
+            if (File(modelDir, ".complete").exists()) return@any true
+            if (modelId.startsWith("realesrgan")) {
+                (File(modelDir, "model.onnx").exists() && File(modelDir, "model.onnx").length() > 0) ||
+                (modelDir.listFiles()?.any { it.isFile && it.name.endsWith(".onnx") && !it.name.endsWith(".part") && it.length() > 0 } == true)
+            } else {
+                REQUIRED_DIFFUSION_ONNX_FILES.all { comp ->
+                    val baseComp = comp.removeSuffix(".onnx")
+                    File(modelDir, comp).exists() || File(File(modelDir, baseComp), "model.onnx").exists()
+                }
+            }
         }
     }
 
@@ -406,6 +443,7 @@ class ModelManager(
         }
         return when (modelId) {
             "sdturbo" -> ModelManifest.sdturbo()
+            "dreamshaper_v8_base" -> ModelManifest.dreamshaper_v8_base()
             "realesrgan_x2plus" -> ModelManifest.realesrgan_x2plus()
             "realesrgan_x4plus" -> ModelManifest.realesrgan_x4plus()
             else -> null

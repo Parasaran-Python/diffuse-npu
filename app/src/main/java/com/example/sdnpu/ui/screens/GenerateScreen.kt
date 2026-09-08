@@ -412,6 +412,46 @@ fun GenerateScreen(
             }
         }
 
+        if (params.upscaleMode != UpscaleMode.OFF) {
+            val upscalerModelId = if (params.upscaleMode == UpscaleMode.X4) "realesrgan_x4plus" else "realesrgan_x2plus"
+            val isUpscalerAvailable = localModels.contains(upscalerModelId)
+            if (!isUpscalerAvailable) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "${if (params.upscaleMode == UpscaleMode.X4) "4x" else "2x"} ESRGAN model not installed",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                            Text(
+                                text = "Download $upscalerModelId for super-resolution inference.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
+                        if (onOpenDownloadDialog != null) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Button(
+                                onClick = { onOpenDownloadDialog(upscalerModelId) }
+                            ) {
+                                Text("Download")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Live Upscaling Progress Indicator Card
         AnimatedVisibility(visible = pipelineState is PipelineState.Upscaling) {
             if (pipelineState is PipelineState.Upscaling) {

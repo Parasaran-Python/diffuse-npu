@@ -26,7 +26,7 @@ fun ModelDownloadDialog(
     initialModelId: String = "sdturbo"
 ) {
     val presets = remember { ModelDownloadPresets.getPresets() }
-    var selectedPresetId by remember {
+    var selectedPresetId by remember(initialModelId) {
         mutableStateOf(
             presets.find { it.id == initialModelId }?.id
                 ?: presets.firstOrNull()?.id

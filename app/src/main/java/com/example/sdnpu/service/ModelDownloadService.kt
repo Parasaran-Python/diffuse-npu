@@ -198,6 +198,9 @@ class ModelDownloadService : Service() {
         currentModelId = modelId ?: run {
             when {
                 url.contains("sd-turbo", ignoreCase = true) || url.contains("sdturbo", ignoreCase = true) -> "sdturbo"
+                url.contains("dreamshaper", ignoreCase = true) -> "dreamshaper_v8_base"
+                url.contains("realesrgan_x2plus", ignoreCase = true) || url.contains("RealESRGAN_x2plus", ignoreCase = true) -> "realesrgan_x2plus"
+                url.contains("realesrgan_x4plus", ignoreCase = true) || url.contains("RealESRGAN_x4plus", ignoreCase = true) -> "realesrgan_x4plus"
                 url.contains("anime", ignoreCase = true) -> "dreamshaper_v8_anime"
                 url.contains("realistic", ignoreCase = true) -> "dreamshaper_v8_realistic"
                 else -> "sdturbo"
@@ -229,6 +232,8 @@ class ModelDownloadService : Service() {
                     "dreamshaper_v8_base" -> ModelManifest.dreamshaper_v8_base()
                     "dreamshaper_v8_anime" -> ModelManifest.dreamshaper_v8_anime()
                     "dreamshaper_v8_realistic" -> ModelManifest.dreamshaper_v8_realistic()
+                    "realesrgan_x2plus" -> ModelManifest.realesrgan_x2plus()
+                    "realesrgan_x4plus" -> ModelManifest.realesrgan_x4plus()
                     else -> {
                         val err = "Cannot fetch manifest: ${manifestRes.exceptionOrNull()?.message}"
                         handleStatusUpdate(DownloadStatus.Failed(err))
@@ -292,6 +297,8 @@ class ModelDownloadService : Service() {
                         "dreamshaper_v8_base" -> ModelManifest.dreamshaper_v8_base()
                         "dreamshaper_v8_anime" -> ModelManifest.dreamshaper_v8_anime()
                         "dreamshaper_v8_realistic" -> ModelManifest.dreamshaper_v8_realistic()
+                        "realesrgan_x2plus" -> ModelManifest.realesrgan_x2plus()
+                        "realesrgan_x4plus" -> ModelManifest.realesrgan_x4plus()
                         else -> {
                             val err = "Cannot fetch manifest: ${manifestRes.exceptionOrNull()?.message}"
                             handleStatusUpdate(DownloadStatus.Failed(err))

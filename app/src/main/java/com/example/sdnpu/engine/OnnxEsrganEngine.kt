@@ -154,7 +154,7 @@ object OnnxEsrganEngine {
             onProgress?.invoke(0.2f)
 
             val inputFloats = rgbaToPlanarRgbFloats(inputRgba, inWidth, inHeight)
-            val inputName = session.inputNames.iterator().next()
+            val inputName = session.inputNames.firstOrNull() ?: throw IllegalStateException("Model has no inputs")
             val inputInfo = session.inputInfo[inputName]?.info as? TensorInfo
             val inputTensor = OnnxDiffusionEngine.createFloatTensor(
                 env,

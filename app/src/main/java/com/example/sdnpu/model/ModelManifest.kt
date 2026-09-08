@@ -22,72 +22,28 @@ data class ModelManifest(
             version = "1.0",
             components = listOf(
                 ModelComponent(
-                    name = "clip_text_encoder",
-                    file = "clip_text_encoder.bin",
-                    sha256 = "$sha256Prefix.clip_text_encoder"
+                    name = "text_encoder",
+                    file = "text_encoder.onnx",
+                    sha256 = "$sha256Prefix.text_encoder"
                 ),
                 ModelComponent(
                     name = "unet",
-                    file = "unet.bin",
+                    file = "unet.onnx",
                     sha256 = "$sha256Prefix.unet"
                 ),
                 ModelComponent(
                     name = "vae_decoder",
-                    file = "vae_decoder.bin",
+                    file = "vae_decoder.onnx",
                     sha256 = "$sha256Prefix.vae_decoder"
                 )
             ),
-            qnnSdkVersion = "2.49.0",
+            qnnSdkVersion = "ort-1.20",
             targetHtp = "v73"
         )
 
-        fun dreamshaperV8Anime(sha256Prefix: String = ""): ModelManifest = ModelManifest(
-            modelId = "dreamshaper_v8_anime",
-            version = "1.0",
-            components = listOf(
-                ModelComponent(
-                    name = "clip_text_encoder",
-                    file = "clip_text_encoder.bin",
-                    sha256 = "$sha256Prefix.clip_text_encoder"
-                ),
-                ModelComponent(
-                    name = "unet",
-                    file = "unet.bin",
-                    sha256 = "$sha256Prefix.unet"
-                ),
-                ModelComponent(
-                    name = "vae_decoder",
-                    file = "vae_decoder.bin",
-                    sha256 = "$sha256Prefix.vae_decoder"
-                )
-            ),
-            qnnSdkVersion = "2.49.0",
-            targetHtp = "v73"
-        )
+        fun dreamshaperV8Anime(sha256Prefix: String = ""): ModelManifest = dreamshaperV8Base(sha256Prefix)
 
-        fun dreamshaperV8Realistic(sha256Prefix: String = ""): ModelManifest = ModelManifest(
-            modelId = "dreamshaper_v8_realistic",
-            version = "1.0",
-            components = listOf(
-                ModelComponent(
-                    name = "clip_text_encoder",
-                    file = "clip_text_encoder.bin",
-                    sha256 = "$sha256Prefix.clip_text_encoder"
-                ),
-                ModelComponent(
-                    name = "unet",
-                    file = "unet.bin",
-                    sha256 = "$sha256Prefix.unet"
-                ),
-                ModelComponent(
-                    name = "vae_decoder",
-                    file = "vae_decoder.bin",
-                    sha256 = "$sha256Prefix.vae_decoder"
-                )
-            ),
-            qnnSdkVersion = "2.49.0",
-            targetHtp = "v73"
-        )
+        fun dreamshaperV8Realistic(sha256Prefix: String = ""): ModelManifest = dreamshaperV8Base(sha256Prefix)
 
         fun realesrganX2Plus(sha256: String = ""): ModelManifest = ModelManifest(
             modelId = "realesrgan_x2plus",
@@ -95,11 +51,11 @@ data class ModelManifest(
             components = listOf(
                 ModelComponent(
                     name = "realesrgan_x2plus",
-                    file = "model.bin",
+                    file = "model.onnx",
                     sha256 = sha256
                 )
             ),
-            qnnSdkVersion = "2.49.0",
+            qnnSdkVersion = "ort-1.20",
             targetHtp = "v73",
             scale = 2
         )
@@ -110,11 +66,11 @@ data class ModelManifest(
             components = listOf(
                 ModelComponent(
                     name = "realesrgan_x4plus",
-                    file = "model.bin",
+                    file = "model.onnx",
                     sha256 = sha256
                 )
             ),
-            qnnSdkVersion = "2.49.0",
+            qnnSdkVersion = "ort-1.20",
             targetHtp = "v73",
             scale = 4
         )
@@ -165,18 +121,8 @@ object ModelVariants {
         ),
         ModelVariant(
             id = "dreamshaper_v8_base",
-            name = "DreamShaper v8 (General)",
-            description = "Balanced photorealistic & artistic SD 1.5 model"
-        ),
-        ModelVariant(
-            id = "dreamshaper_v8_anime",
-            name = "DreamShaper v8 (Anime)",
-            description = "Stylized anime and manga art checkpoint"
-        ),
-        ModelVariant(
-            id = "dreamshaper_v8_realistic",
-            name = "DreamShaper v8 (Realistic)",
-            description = "Enhanced for lifelike human faces and natural scenes"
+            name = "DreamShaper v8 (LCM / ONNX)",
+            description = "High quality 4-8 step SD 1.5 LCM inference on Qualcomm NPU"
         )
     )
 
@@ -204,9 +150,21 @@ object ModelDownloadPresets {
         ),
         ModelDownloadPreset(
             id = "dreamshaper_v8_base",
-            name = "DreamShaper v8 (General)",
-            defaultUrl = "",
-            description = "Standard SD 1.5 weights (Requires custom server or LAN URL)"
+            name = "DreamShaper v8 (LCM / ONNX)",
+            defaultUrl = "https://huggingface.co/softwareweaver/LCM_Dreamshaper_v7_Olive_Onnx/resolve/main/",
+            description = "High quality 4-8 step SD 1.5 LCM inference on Qualcomm NPU"
+        ),
+        ModelDownloadPreset(
+            id = "realesrgan_x2plus",
+            name = "RealESRGAN 2x Plus (ONNX)",
+            defaultUrl = "https://huggingface.co/tamnvcc/RealESRGAN-onnx/resolve/main/onnx/",
+            description = "Fast 2x super-resolution upscaler for Qualcomm NPU / ONNX Runtime"
+        ),
+        ModelDownloadPreset(
+            id = "realesrgan_x4plus",
+            name = "RealESRGAN 4x Plus (ONNX)",
+            defaultUrl = "https://huggingface.co/tamnvcc/RealESRGAN-onnx/resolve/main/onnx/",
+            description = "Ultra high detail 4x super-resolution upscaler for Qualcomm NPU / ONNX Runtime"
         ),
         ModelDownloadPreset(
             id = "custom",
