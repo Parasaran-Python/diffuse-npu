@@ -351,4 +351,82 @@ class MainViewModelTest {
         assertEquals("com.example.sdnpu.service.EXTRA_MODEL_ID", com.example.sdnpu.service.ModelDownloadService.EXTRA_MODEL_ID)
         assertEquals("sd_npu_downloads", com.example.sdnpu.service.ModelDownloadService.CHANNEL_ID)
     }
+
+    @Test
+    fun testResumeDownloadRealESRGANFallback() = runBlocking {
+        val server = okhttp3.mockwebserver.MockWebServer()
+        server.start()
+        try {
+            // Test realesrgan_x2plus fallback on resumeDownload
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(404)) // manifest 404
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(200).setBody("bytes"))
+
+            val baseUrl = server.url("/realesrgan/").toString()
+            viewModel.downloadModelFromUrl(baseUrl, modelId = "realesrgan_x2plus")
+            val downloading = viewModel.downloadStatus.filter { it is com.example.sdnpu.model.DownloadStatus.DownloadingComponent }.first()
+            assertEquals("realesrgan_x2plus", (downloading as com.example.sdnpu.model.DownloadStatus.DownloadingComponent).componentName)
+
+            viewModel.pauseDownload()
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(200).setBody("resumed"))
+            viewModel.resumeDownload()
+            assertFalse(modelManager.isPaused)
+            viewModel.cancelDownload()
+
+            // Test realesrgan_x4plus fallback on resumeDownload
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(404)) // manifest 404
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(200).setBody("bytes_x4"))
+            viewModel.downloadModelFromUrl(baseUrl, modelId = "realesrgan_x4plus")
+            val downloading4 = viewModel.downloadStatus.filter {
+                it is com.example.sdnpu.model.DownloadStatus.DownloadingComponent && it.componentName == "realesrgan_x4plus"
+            }.first()
+            assertEquals("realesrgan_x4plus", (downloading4 as com.example.sdnpu.model.DownloadStatus.DownloadingComponent).componentName)
+
+            viewModel.pauseDownload()
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(200).setBody("resumed_x4"))
+            viewModel.resumeDownload()
+            assertFalse(modelManager.isPaused)
+            viewModel.cancelDownload()
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun testRealESRGANUrlHeuristics() = runBlocking {
+        val server = okhttp3.mockwebserver.MockWebServer()
+        server.start()
+        try {
+            // URL with "realesrgan" and "x4" -> realesrgan_x4plus
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(404)) // manifest
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(200).setBody("bytes"))
+            viewModel.downloadModelFromUrl(server.url("/models/realesrgan_x4/").toString(), modelId = null)
+            val st1 = viewModel.downloadStatus.filter {
+                it is com.example.sdnpu.model.DownloadStatus.DownloadingComponent && it.componentName == "realesrgan_x4plus"
+            }.first()
+            assertNotNull(st1)
+            viewModel.cancelDownload()
+
+            // URL with "realesrgan" and "4plus" -> realesrgan_x4plus
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(404)) // manifest
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(200).setBody("bytes"))
+            viewModel.downloadModelFromUrl(server.url("/models/RealESRGAN-4plus/").toString(), modelId = null)
+            val st2 = viewModel.downloadStatus.filter {
+                it is com.example.sdnpu.model.DownloadStatus.DownloadingComponent && it.componentName == "realesrgan_x4plus"
+            }.first()
+            assertNotNull(st2)
+            viewModel.cancelDownload()
+
+            // URL with "realesrgan" without 4 -> realesrgan_x2plus
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(404)) // manifest
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(200).setBody("bytes"))
+            viewModel.downloadModelFromUrl(server.url("/models/realesrgan/").toString(), modelId = null)
+            val st3 = viewModel.downloadStatus.filter {
+                it is com.example.sdnpu.model.DownloadStatus.DownloadingComponent && it.componentName == "realesrgan_x2plus"
+            }.first()
+            assertNotNull(st3)
+            viewModel.cancelDownload()
+        } finally {
+            server.shutdown()
+        }
+    }
 }

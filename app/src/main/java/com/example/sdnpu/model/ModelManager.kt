@@ -160,7 +160,7 @@ class ModelManager(
                 var successfulCandidateUrl = ""
                 var lastError: Exception? = null
 
-                for (candidateUrl in candidateUrls) {
+                for (candidateUrl in candidateUrls.distinct()) {
                     if (isPaused) break
 
                     val requestBuilder = Request.Builder().url(candidateUrl)

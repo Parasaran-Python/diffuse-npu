@@ -199,8 +199,13 @@ class ModelDownloadService : Service() {
             when {
                 url.contains("sd-turbo", ignoreCase = true) || url.contains("sdturbo", ignoreCase = true) -> "sdturbo"
                 url.contains("dreamshaper", ignoreCase = true) -> "dreamshaper_v8_base"
-                url.contains("realesrgan_x2plus", ignoreCase = true) || url.contains("RealESRGAN_x2plus", ignoreCase = true) -> "realesrgan_x2plus"
-                url.contains("realesrgan_x4plus", ignoreCase = true) || url.contains("RealESRGAN_x4plus", ignoreCase = true) -> "realesrgan_x4plus"
+                url.contains("realesrgan", ignoreCase = true) -> {
+                    if (url.contains("x4", ignoreCase = true) || url.contains("4plus", ignoreCase = true)) {
+                        "realesrgan_x4plus"
+                    } else {
+                        "realesrgan_x2plus"
+                    }
+                }
                 url.contains("anime", ignoreCase = true) -> "dreamshaper_v8_anime"
                 url.contains("realistic", ignoreCase = true) -> "dreamshaper_v8_realistic"
                 else -> "sdturbo"
@@ -256,7 +261,25 @@ class ModelDownloadService : Service() {
 
     private fun handleResume(url: String?, modelId: String?) {
         if (url != null) currentUrl = url
-        if (modelId != null) currentModelId = modelId
+        if (modelId != null) {
+            currentModelId = modelId
+        } else if (currentModelId == null && currentUrl != null) {
+            val u = currentUrl!!
+            currentModelId = when {
+                u.contains("sd-turbo", ignoreCase = true) || u.contains("sdturbo", ignoreCase = true) -> "sdturbo"
+                u.contains("dreamshaper", ignoreCase = true) -> "dreamshaper_v8_base"
+                u.contains("realesrgan", ignoreCase = true) -> {
+                    if (u.contains("x4", ignoreCase = true) || u.contains("4plus", ignoreCase = true)) {
+                        "realesrgan_x4plus"
+                    } else {
+                        "realesrgan_x2plus"
+                    }
+                }
+                u.contains("anime", ignoreCase = true) -> "dreamshaper_v8_anime"
+                u.contains("realistic", ignoreCase = true) -> "dreamshaper_v8_realistic"
+                else -> "sdturbo"
+            }
+        }
 
         val resumeUrl = currentUrl
         if (resumeUrl == null) {

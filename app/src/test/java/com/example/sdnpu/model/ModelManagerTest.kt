@@ -640,4 +640,17 @@ class ModelManagerTest {
         assertEquals("ort-1.20", manifest?.qnnSdkVersion)
         assertEquals(3, manifest?.components?.size)
     }
+
+    @Test
+    fun testCandidateUrlsDeduplication() = runBlocking {
+        val manifest = ModelManifest.realesrganX2Plus()
+        repeat(5) {
+            server.enqueue(MockResponse().setResponseCode(404))
+        }
+
+        val baseUrl = server.url("/").toString()
+        val statuses = modelManager.downloadModel(manifest, baseUrl).toList()
+        assertTrue(statuses.any { it is DownloadStatus.Failed })
+        assertEquals(5, server.requestCount)
+    }
 }
