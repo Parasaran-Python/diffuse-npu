@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Soft core aura glow -->
+    <path
+        android:pathData="M54,54m-22,0a22,22 0 1,1 44,0a22,22 0 1,1 -44,0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:centerX="54"
+                android:centerY="54"
+                android:gradientRadius="22"
+                android:type="radial">
+                <item android:offset="0.0" android:color="#7000F2FE" />
+                <item android:offset="0.5" android:color="#359B51E0" />
+                <item android:offset="1.0" android:color="#00000000" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- NPU Silicon Hexagon Circuit Tracks -->
+    <!-- Top trace -->
+    <path
+        android:pathData="M54,27 L54,33"
+        android:strokeColor="#FF00F2FE"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round" />
+    <!-- Bottom trace -->
+    <path
+        android:pathData="M54,81 L54,75"
+        android:strokeColor="#FFBB86FC"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round" />
+    <!-- Top-Right trace -->
+    <path
+        android:pathData="M77.38,40.5 L72.18,43.5"
+        android:strokeColor="#FF38E1FF"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round" />
+    <!-- Bottom-Right trace -->
+    <path
+        android:pathData="M77.38,67.5 L72.18,64.5"
+        android:strokeColor="#FF8F72FA"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round" />
+    <!-- Bottom-Left trace -->
+    <path
+        android:pathData="M30.62,67.5 L35.82,64.5"
+        android:strokeColor="#FF62A0FD"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round" />
+    <!-- Top-Left trace -->
+    <path
+        android:pathData="M30.62,40.5 L35.82,43.5"
+        android:strokeColor="#FF00F2FE"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round" />
+
+    <!-- Outer Qualcomm Hexagon NPU Ring with Gradient Stroke -->
+    <path
+        android:pathData="M54,27 L77.38,40.5 L77.38,67.5 L54,81 L30.62,67.5 L30.62,40.5 Z"
+        android:strokeWidth="3.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="30"
+                android:startY="30"
+                android:endX="78"
+                android:endY="78"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FF00F2FE" />
+                <item android:offset="0.35" android:color="#FF38BDF8" />
+                <item android:offset="0.75" android:color="#FF9333EA" />
+                <item android:offset="1.0" android:color="#FFBB86FC" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- NPU Bus Contact Nodes (Terminal pins) -->
+    <path
+        android:pathData="M54,27m-2.2,0a2.2,2.2 0 1,1 4.4,0a2.2,2.2 0 1,1 -4.4,0"
+        android:fillColor="#FF00F2FE" />
+    <path
+        android:pathData="M77.38,40.5m-2.2,0a2.2,2.2 0 1,1 4.4,0a2.2,2.2 0 1,1 -4.4,0"
+        android:fillColor="#FF38E1FF" />
+    <path
+        android:pathData="M77.38,67.5m-2.2,0a2.2,2.2 0 1,1 4.4,0a2.2,2.2 0 1,1 -4.4,0"
+        android:fillColor="#FFA855F7" />
+    <path
+        android:pathData="M54,81m-2.2,0a2.2,2.2 0 1,1 4.4,0a2.2,2.2 0 1,1 -4.4,0"
+        android:fillColor="#FFBB86FC" />
+    <path
+        android:pathData="M30.62,67.5m-2.2,0a2.2,2.2 0 1,1 4.4,0a2.2,2.2 0 1,1 -4.4,0"
+        android:fillColor="#FF60A5FA" />
+    <path
+        android:pathData="M30.62,40.5m-2.2,0a2.2,2.2 0 1,1 4.4,0a2.2,2.2 0 1,1 -4.4,0"
+        android:fillColor="#FF00F2FE" />
+
+    <!-- Latent Generative Diffusion Star (Primary 4-point AI aperture) -->
+    <path
+        android:pathData="M54,34 Q54,54 74,54 Q54,54 54,74 Q54,54 34,54 Q54,54 54,34 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="36"
+                android:startY="36"
+                android:endX="72"
+                android:endY="72"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FFFFFFFF" />
+                <item android:offset="0.25" android:color="#FFE0F7FA" />
+                <item android:offset="0.6" android:color="#FF38BDF8" />
+                <item android:offset="1.0" android:color="#FFBB86FC" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Inner Luminous Core (Highlight spark) -->
+    <path
+        android:pathData="M54,43 Q54,54 65,54 Q54,54 54,65 Q54,54 43,54 Q54,54 54,43 Z"
+        android:fillColor="#FFFFFFFF" />
+
+    <!-- Central Core Ignition Point -->
+    <path
+        android:pathData="M54,54m-2.5,0a2.5,2.5 0 1,1 5,0a2.5,2.5 0 1,1 -5,0"
+        android:fillColor="#FFFFFFFF" />
+
+    <!-- RealESRGAN Super-Resolution Sparkle (Top-Right accent) -->
+    <path
+        android:pathData="M69,32 Q69,36.5 73.5,36.5 Q69,36.5 69,41 Q69,36.5 64.5,36.5 Q69,36.5 69,32 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="65"
+                android:startY="32"
+                android:endX="73"
+                android:endY="40"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FFFFFFFF" />
+                <item android:offset="1.0" android:color="#FF38BDF8" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- RealESRGAN Sub-pixel Latent Micro-Sparkle (Bottom-Left accent) -->
+    <path
+        android:pathData="M39,68.5 Q39,71.5 42,71.5 Q39,71.5 39,74.5 Q39,71.5 36,71.5 Q39,71.5 39,68.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="36"
+                android:startY="69"
+                android:endX="42"
+                android:endY="74"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FFFFFFFF" />
+                <item android:offset="1.0" android:color="#FFC084FC" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+</vector>
