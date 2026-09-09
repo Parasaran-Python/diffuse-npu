@@ -10,3 +10,4 @@ app/build/
 .externalNativeBuild
 .cxx
 .superpowers/
+.playwright-mcp/
