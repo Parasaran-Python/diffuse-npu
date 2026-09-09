@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- NPU Silicon Hexagon Circuit Tracks -->
+    <path
+        android:pathData="M54,27 L54,33"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M54,81 L54,75"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M77.38,40.5 L72.18,43.5"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M77.38,67.5 L72.18,64.5"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M30.62,67.5 L35.82,64.5"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M30.62,40.5 L35.82,43.5"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round" />
+
+    <!-- Outer Hexagon NPU Ring -->
+    <path
+        android:pathData="M54,27 L77.38,40.5 L77.38,67.5 L54,81 L30.62,67.5 L30.62,40.5 Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <!-- Terminal Pins / Nodes -->
+    <path
+        android:pathData="M54,27m-2.2,0a2.2,2.2 0 1,1 4.4,0a2.2,2.2 0 1,1 -4.4,0"
+        android:fillColor="#FFFFFF" />
+    <path
+        android:pathData="M77.38,40.5m-2.2,0a2.2,2.2 0 1,1 4.4,0a2.2,2.2 0 1,1 -4.4,0"
+        android:fillColor="#FFFFFF" />
+    <path
+        android:pathData="M77.38,67.5m-2.2,0a2.2,2.2 0 1,1 4.4,0a2.2,2.2 0 1,1 -4.4,0"
+        android:fillColor="#FFFFFF" />
+    <path
+        android:pathData="M54,81m-2.2,0a2.2,2.2 0 1,1 4.4,0a2.2,2.2 0 1,1 -4.4,0"
+        android:fillColor="#FFFFFF" />
+    <path
+        android:pathData="M30.62,67.5m-2.2,0a2.2,2.2 0 1,1 4.4,0a2.2,2.2 0 1,1 -4.4,0"
+        android:fillColor="#FFFFFF" />
+    <path
+        android:pathData="M30.62,40.5m-2.2,0a2.2,2.2 0 1,1 4.4,0a2.2,2.2 0 1,1 -4.4,0"
+        android:fillColor="#FFFFFF" />
+
+    <!-- Latent Generative Diffusion Star -->
+    <path
+        android:pathData="M54,34 Q54,54 74,54 Q54,54 54,74 Q54,54 34,54 Q54,54 54,34 Z"
+        android:fillColor="#FFFFFF" />
+
+    <!-- RealESRGAN Super-Resolution Sparkle -->
+    <path
+        android:pathData="M69,32 Q69,36.5 73.5,36.5 Q69,36.5 69,41 Q69,36.5 64.5,36.5 Q69,36.5 69,32 Z"
+        android:fillColor="#FFFFFF" />
+
+    <!-- RealESRGAN Sub-pixel Latent Micro-Sparkle -->
+    <path
+        android:pathData="M39,68.5 Q39,71.5 42,71.5 Q39,71.5 39,74.5 Q39,71.5 36,71.5 Q39,71.5 39,68.5 Z"
+        android:fillColor="#FFFFFF" />
+
+</vector>
