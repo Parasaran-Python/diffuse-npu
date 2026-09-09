@@ -395,6 +395,9 @@ object OnnxDiffusionEngine {
                         if (timeInfo?.type == OnnxJavaType.INT64) {
                             val buf = LongBuffer.wrap(longArrayOf(tVal))
                             OnnxTensor.createTensor(env, buf, longArrayOf(1))
+                        } else if (timeInfo?.type == OnnxJavaType.INT32) {
+                            val buf = IntBuffer.wrap(intArrayOf(tVal.toInt()))
+                            OnnxTensor.createTensor(env, buf, longArrayOf(1))
                         } else if (timeInfo?.type == OnnxJavaType.FLOAT16) {
                             val buf = ShortBuffer.wrap(shortArrayOf(floatToFp16(tVal.toFloat())))
                             OnnxTensor.createTensor(env, buf, longArrayOf(1), OnnxJavaType.FLOAT16)
@@ -406,6 +409,9 @@ object OnnxDiffusionEngine {
                         val tVal = sdTurboSchedule!!.timesteps[stepIndex]
                         if (timeInfo?.type == OnnxJavaType.INT64) {
                             val buf = LongBuffer.wrap(longArrayOf(tVal.toLong()))
+                            OnnxTensor.createTensor(env, buf, longArrayOf(1))
+                        } else if (timeInfo?.type == OnnxJavaType.INT32) {
+                            val buf = IntBuffer.wrap(intArrayOf(tVal.toInt()))
                             OnnxTensor.createTensor(env, buf, longArrayOf(1))
                         } else if (timeInfo?.type == OnnxJavaType.FLOAT16) {
                             val buf = ShortBuffer.wrap(shortArrayOf(floatToFp16(tVal)))
