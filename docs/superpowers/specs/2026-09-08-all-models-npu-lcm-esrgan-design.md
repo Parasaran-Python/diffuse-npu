@@ -89,7 +89,7 @@ The app currently shows models with empty URLs (`defaultUrl = ""`) and legacy va
      - URL: `https://huggingface.co/microsoft/sd-turbo-webnn/resolve/main/`
      - Components: `text_encoder.onnx`, `unet.onnx`, `vae_decoder.onnx` (~2.6 GB total FP16).
    - **`dreamshaper_v8_base` / `dreamshaper_lcm`**:
-     - URL: `https://huggingface.co/softwareweaver/LCM_Dreamshaper_v7_Olive_Onnx/resolve/main/`
+     - URL: `https://huggingface.co/jdp8/lcm-dreamshaper-v7-onnx/resolve/main/`
      - Components: `text_encoder.onnx`, `unet.onnx`, `vae_decoder.onnx` (~2.06 GB total FP16, single files without `.data` fragmentation).
    - **`realesrgan_x2plus`**:
      - URL: `https://huggingface.co/tamnvcc/RealESRGAN-onnx/resolve/main/onnx/RealESRGAN_x2plus.fp16.onnx` (~33.6 MB).

@@ -411,7 +411,7 @@ git commit -m "feat(engine): implement OnnxEsrganEngine for NPU-accelerated supe
 - Produces:
   - Verified presets for:
     - `sdturbo`: `https://huggingface.co/microsoft/sd-turbo-webnn/resolve/main/`
-    - `dreamshaper_v8_base`: `https://huggingface.co/softwareweaver/LCM_Dreamshaper_v7_Olive_Onnx/resolve/main/`
+    - `dreamshaper_v8_base`: `https://huggingface.co/jdp8/lcm-dreamshaper-v7-onnx/resolve/main/`
     - `realesrgan_x2plus`: `https://huggingface.co/tamnvcc/RealESRGAN-onnx/resolve/main/onnx/`
     - `realesrgan_x4plus`: `https://huggingface.co/tamnvcc/RealESRGAN-onnx/resolve/main/onnx/`
 

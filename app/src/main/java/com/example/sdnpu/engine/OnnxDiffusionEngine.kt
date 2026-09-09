@@ -533,6 +533,7 @@ object OnnxDiffusionEngine {
         val textEmbeddings = createSession(env, textEncoderFile).use { textEncoderSession ->
             encodePrompt(textEncoderSession, promptTokens, env)
         }
+        System.gc()
 
         if (isCancelled) throw CancellationException("Generation cancelled")
 
@@ -560,6 +561,7 @@ object OnnxDiffusionEngine {
                 env = env
             )
         }
+        System.gc()
 
         if (isCancelled) throw CancellationException("Generation cancelled")
 

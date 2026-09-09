@@ -33,6 +33,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         handleAutoGenerate(intent)
         setContent {
             val appSettings by viewModel.appSettings.collectAsState()
@@ -168,10 +169,12 @@ class MainActivity : ComponentActivity() {
     private fun handleAutoGenerate(intent: android.content.Intent?) {
         if (intent?.getBooleanExtra("auto_generate", false) == true) {
             val prompt = intent.getStringExtra("prompt") ?: "A serene Japanese garden"
-            android.util.Log.i("MainActivity", "handleAutoGenerate received: prompt='$prompt'")
+            val modelId = intent.getStringExtra("model_id") ?: viewModel.params.value.modelId
+            val steps = intent.getIntExtra("steps", viewModel.params.value.steps)
+            android.util.Log.i("MainActivity", "handleAutoGenerate received: prompt='$prompt', modelId='$modelId', steps=$steps")
             lifecycleScope.launch {
                 delay(600)
-                viewModel.updateParams(viewModel.params.value.copy(prompt = prompt))
+                viewModel.updateParams(viewModel.params.value.copy(prompt = prompt, modelId = modelId, steps = steps))
                 viewModel.startGeneration()
             }
         }

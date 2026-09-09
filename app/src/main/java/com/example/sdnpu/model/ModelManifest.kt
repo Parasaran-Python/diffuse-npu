@@ -151,7 +151,7 @@ object ModelDownloadPresets {
         ModelDownloadPreset(
             id = "dreamshaper_v8_base",
             name = "DreamShaper v8 (LCM / ONNX)",
-            defaultUrl = "https://huggingface.co/softwareweaver/LCM_Dreamshaper_v7_Olive_Onnx/resolve/main/",
+            defaultUrl = "https://huggingface.co/jdp8/lcm-dreamshaper-v7-onnx/resolve/main/",
             description = "High quality 4-8 step SD 1.5 LCM inference on Qualcomm NPU"
         ),
         ModelDownloadPreset(
