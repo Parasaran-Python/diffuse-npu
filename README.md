@@ -1,5 +1,12 @@
 # Android Stable Diffusion + RealESRGAN on NPU
 
+[![CI](https://github.com/Parasaran-Python/diffuse-npu/actions/workflows/ci.yml/badge.svg)](https://github.com/Parasaran-Python/diffuse-npu/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-Android-green.svg)](https://developer.android.com)
+[![API](https://img.shields.io/badge/API-26%2B-brightgreen.svg)](https://android-arsenal.com/api?level=26)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.0-purple.svg)](https://kotlinlang.org)
+[![NPU](https://img.shields.io/badge/Qualcomm-Hexagon%20HTP-orange.svg)](https://developer.qualcomm.com/software/qualcomm-neural-processing-sdk)
+
 On-device text-to-image generation and super-resolution for Android, powered by Qualcomm Neural Processing SDK (QNN) and the Hexagon Tensor Processor (HTP).
 
 ---
@@ -645,5 +652,48 @@ The project implementation satisfies all performance, memory, stability, and arc
 
 ## 8. License
 
-This project is developed for local on-device inference research and personal use.
+This project is licensed under the **Apache License, Version 2.0**. See the [LICENSE](LICENSE) file for details.
+
+```text
+Copyright 2026 Parasaran Vedanarayanan
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+```
+
+---
+
+## 9. Acknowledgments & Credits
+
+Diffuse-NPU is built upon pioneering work in generative AI, on-device runtimes, and mobile hardware acceleration. Sincere credits and appreciation go to:
+
+- **Qualcomm Technologies, Inc.**: For the [Qualcomm Neural Processing SDK (QNN)](https://developer.qualcomm.com/software/qualcomm-neural-processing-sdk) and Hexagon Tensor Processor (HTP) runtime, powering low-latency on-device tensor execution.
+- **Microsoft Corporation**: For [ONNX Runtime](https://onnxruntime.ai/) and [ONNX Runtime Mobile](https://onnxruntime.ai/docs/tutorials/mobile/), enabling cross-platform execution provider support for QNN and NNAPI.
+- **Lykon**: For training and releasing the [DreamShaper](https://huggingface.co/Lykon/DreamShaper) series, establishing versatile and efficient diffusion checkpoints.
+- **Stability AI & RunwayML**: For developing and open-sourcing the foundational [Stable Diffusion](https://github.com/Stability-AI/stablediffusion) latent diffusion architecture.
+- **Xintao Wang, Liangbin Xie, Chao Dong, and Ying Shan**: For developing [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN), enabling high-fidelity blind image super-resolution.
+- **Hugging Face**: For the [`diffusers`](https://github.com/huggingface/diffusers) library, model hub hosting, and ONNX community conversion pipelines.
+- **Google & Android Open Source Project**: For Jetpack Compose, Material Design 3, Android NDK, and Kotlin Coroutines.
+
+---
+
+## 10. Third-Party Model Weights & Licensing Notice
+
+The Diffuse-NPU application provides capabilities to download, cache, and execute pretrained neural network weights. These models are subject to their respective original licenses:
+
+- **DreamShaper / Stable Diffusion 1.5 / LCM Models**: Governed by the [CreativeML OpenRAIL-M License](https://huggingface.co/spaces/CompVis/stable-diffusion-license), which specifies terms for responsible commercial and non-commercial usage.
+- **Real-ESRGAN (x2plus / x4plus)**: Released under the [BSD 3-Clause License](https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE).
+- **ONNX Runtime Mobile**: Distributed under the [MIT License](https://github.com/microsoft/onnxruntime/blob/main/LICENSE).
+
+Users downloading and running these models on-device are responsible for complying with each model's license terms and ethical AI usage guidelines.
+
 
