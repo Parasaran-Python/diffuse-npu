@@ -74,14 +74,19 @@ object OnnxEsrganEngine {
                 OrtSession.SessionOptions().use { qnnOptions ->
                     qnnOptions.setIntraOpNumThreads(4)
                     qnnOptions.addConfigEntry("session.load_model_format", "ONNX")
+                    qnnOptions.addConfigEntry("session.disable_prepacking", "1")
                     val qnnProviderOptions = mapOf(
-                        "backend_type" to "HTP",
                         "backend_path" to OnnxDiffusionEngine.resolveQnnBackendPath(),
+                        "enable_htp_fp16_precision" to "1",
+                        "enable_htp_weight_sharing" to "1",
                         "htp_performance_mode" to "burst",
-                        "htp_graph_finalization_optimization_mode" to "3"
+                        "htp_graph_finalization_optimization_mode" to "1"
                     )
+                    Log.i(TAG, "Attempting Tier 1 (QNN HTP NPU) session creation for ${modelFile.name} with options: $qnnProviderOptions")
                     qnnOptions.addQnn(qnnProviderOptions)
-                    return env.createSession(modelFile.absolutePath, qnnOptions)
+                    val session = env.createSession(modelFile.absolutePath, qnnOptions)
+                    Log.i(TAG, "SUCCESS: Tier 1 (QNN HTP NPU) session created for ${modelFile.name}")
+                    return session
                 }
             } catch (t: Throwable) {
                 Log.w(TAG, "Tier 1 (QNN) session creation failed for ${modelFile.name}, falling back", t)

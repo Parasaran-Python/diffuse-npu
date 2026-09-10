@@ -179,6 +179,9 @@ class MainViewModel(
     val isLowBattery: StateFlow<Boolean> = deviceMonitor.isLowBattery
 
     init {
+        application?.applicationInfo?.nativeLibraryDir?.let { libDir ->
+            com.example.sdnpu.engine.OnnxDiffusionEngine.initAdspLibraryPath(libDir)
+        }
         refreshBackend()
         refreshLocalModels()
         viewModelScope.launch {

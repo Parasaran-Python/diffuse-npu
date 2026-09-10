@@ -108,14 +108,26 @@ object OnnxDiffusionEngine {
         }
     }
 
+    @Volatile
+    var nativeLibraryDir: String? = null
+
+    fun initAdspLibraryPath(libDir: String) {
+        nativeLibraryDir = libDir
+        try {
+            val adspPath = "$libDir;/vendor/lib/rfsa/adsp/snap;/vendor/lib/rfsa/adsp;/dsp"
+            android.system.Os.setenv("ADSP_LIBRARY_PATH", adspPath, true)
+            Log.i(TAG, "Configured ADSP_LIBRARY_PATH=$adspPath")
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed to set ADSP_LIBRARY_PATH", t)
+        }
+    }
+
     fun resolveQnnBackendPath(): String {
-        val candidatePaths = listOf(
-            "/vendor/lib64/snap/libQnnHtp.so",
-            "/vendor/lib64/libQnnHtp.so",
-            "/system/vendor/lib64/snap/libQnnHtp.so"
-        )
-        for (path in candidatePaths) {
-            if (File(path).exists()) return path
+        nativeLibraryDir?.let { dir ->
+            val libFile = File(dir, "libQnnHtp.so")
+            if (libFile.exists()) {
+                return libFile.absolutePath
+            }
         }
         return "libQnnHtp.so"
     }
@@ -124,14 +136,16 @@ object OnnxDiffusionEngine {
         val options = OrtSession.SessionOptions()
         options.setIntraOpNumThreads(4)
         options.addConfigEntry("session.load_model_format", "ONNX")
+        options.addConfigEntry("session.disable_prepacking", "1")
         val availableProviders = runCatching { OrtEnvironment.getAvailableProviders() }.getOrNull() ?: emptySet()
         if (availableProviders.contains(OrtProvider.QNN)) {
             try {
                 val qnnOptions = mapOf(
-                    "backend_type" to "HTP",
                     "backend_path" to resolveQnnBackendPath(),
+                    "enable_htp_fp16_precision" to "1",
+                    "enable_htp_weight_sharing" to "1",
                     "htp_performance_mode" to "burst",
-                    "htp_graph_finalization_optimization_mode" to "3"
+                    "htp_graph_finalization_optimization_mode" to "1"
                 )
                 options.addQnn(qnnOptions)
                 return options
@@ -154,19 +168,31 @@ object OnnxDiffusionEngine {
         val availableProviders = runCatching { OrtEnvironment.getAvailableProviders() }.getOrNull() ?: emptySet()
 
         // Tier 1: Try Qualcomm QNN Execution Provider (HTP Backend) if supported in current build
-        if (availableProviders.contains(OrtProvider.QNN)) {
+        // Unquantized raw ONNX models >1GB (like 1.6GB unet.onnx) cannot be JIT-compiled on-device
+        // on mobile Hexagon HTP without exceeding device RAM limits (6GB+ compiler tree triggers LMKD SIGKILL).
+        // Pre-compiled QNN context binaries (.bin) or quantized models are used for HTP UNet.
+        val isUnquantizedLargeUnet = modelFile.name == "unet.onnx" && modelFile.length() > 1_000_000_000L
+        if (isUnquantizedLargeUnet) {
+            Log.w(TAG, "Skipping on-device QNN HTP JIT compilation for unquantized ${modelFile.name} (${modelFile.length() / (1024 * 1024)}MB) to prevent device OOM/LMKD kill. Pre-compiled QNN context binary (.bin) required for HTP UNet.")
+        }
+        if (availableProviders.contains(OrtProvider.QNN) && !isUnquantizedLargeUnet) {
             try {
                 OrtSession.SessionOptions().use { qnnOptions ->
                     qnnOptions.setIntraOpNumThreads(4)
                     qnnOptions.addConfigEntry("session.load_model_format", "ONNX")
+                    qnnOptions.addConfigEntry("session.disable_prepacking", "1")
                     val qnnProviderOptions = mapOf(
-                        "backend_type" to "HTP",
                         "backend_path" to resolveQnnBackendPath(),
+                        "enable_htp_fp16_precision" to "1",
+                        "enable_htp_weight_sharing" to "1",
                         "htp_performance_mode" to "burst",
-                        "htp_graph_finalization_optimization_mode" to "3"
+                        "htp_graph_finalization_optimization_mode" to "1"
                     )
+                    Log.i(TAG, "Attempting Tier 1 (QNN HTP NPU) session creation for ${modelFile.name} with options: $qnnProviderOptions")
                     qnnOptions.addQnn(qnnProviderOptions)
-                    return env.createSession(modelFile.absolutePath, qnnOptions)
+                    val session = env.createSession(modelFile.absolutePath, qnnOptions)
+                    Log.i(TAG, "SUCCESS: Tier 1 (QNN HTP NPU) session created for ${modelFile.name}")
+                    return session
                 }
             } catch (t: Throwable) {
                 Log.w(TAG, "Tier 1 (QNN) session creation failed for ${modelFile.name}, falling back", t)
