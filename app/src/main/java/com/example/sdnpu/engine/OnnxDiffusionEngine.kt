@@ -168,14 +168,25 @@ object OnnxDiffusionEngine {
         val availableProviders = runCatching { OrtEnvironment.getAvailableProviders() }.getOrNull() ?: emptySet()
 
         // Tier 1: Try Qualcomm QNN Execution Provider (HTP Backend) if supported in current build
+        // Check for pre-compiled QNN context binary (.bin / _ctx.onnx)
+        val contextOnnxFile = File(modelFile.parentFile, "${modelFile.nameWithoutExtension}_ctx.onnx")
+        val effectiveModelFile = if (contextOnnxFile.exists() && contextOnnxFile.length() > 0) contextOnnxFile else modelFile
+
         // Unquantized raw ONNX models >1GB (like 1.6GB unet.onnx) cannot be JIT-compiled on-device
-        // on mobile Hexagon HTP without exceeding device RAM limits (6GB+ compiler tree triggers LMKD SIGKILL).
-        // Pre-compiled QNN context binaries (.bin) or quantized models are used for HTP UNet.
-        val isUnquantizedLargeUnet = modelFile.name == "unet.onnx" && modelFile.length() > 1_000_000_000L
+        // because libQnnHtpPrepare.so allocates >20GB virtual memory / 6.5GB swap, triggering Linux kernel LMKD SIGKILL.
+        // Raw float vae_decoder.onnx has attention ops unsupported on HTP, causing 22s FastRPC IPC thrashing vs 2s on CPU.
+        val isPrecompiledContext = effectiveModelFile == contextOnnxFile
+        val isUnquantizedLargeUnet = !isPrecompiledContext && effectiveModelFile.name == "unet.onnx" && effectiveModelFile.length() > 1_000_000_000L
+        val isUnoptimizedFloatVae = !isPrecompiledContext && effectiveModelFile.name == "vae_decoder.onnx"
+        val skipQnnJit = isUnquantizedLargeUnet || isUnoptimizedFloatVae
+
         if (isUnquantizedLargeUnet) {
-            Log.w(TAG, "Skipping on-device QNN HTP JIT compilation for unquantized ${modelFile.name} (${modelFile.length() / (1024 * 1024)}MB) to prevent device OOM/LMKD kill. Pre-compiled QNN context binary (.bin) required for HTP UNet.")
+            Log.w(TAG, "Skipping on-device QNN HTP JIT compilation for raw ${effectiveModelFile.name} (${effectiveModelFile.length() / (1024 * 1024)}MB) to prevent device OOM/LMKD kill. Pre-compiled QNN context binary (.bin or _ctx.onnx) required for HTP UNet.")
         }
-        if (availableProviders.contains(OrtProvider.QNN) && !isUnquantizedLargeUnet) {
+        if (isUnoptimizedFloatVae) {
+            Log.i(TAG, "Routing raw ${effectiveModelFile.name} to CPU to prevent 22s FastRPC memory copy penalty from unsupported HTP attention ops.")
+        }
+        if (availableProviders.contains(OrtProvider.QNN) && !skipQnnJit) {
             try {
                 OrtSession.SessionOptions().use { qnnOptions ->
                     qnnOptions.setIntraOpNumThreads(4)
@@ -188,34 +199,34 @@ object OnnxDiffusionEngine {
                         "htp_performance_mode" to "burst",
                         "htp_graph_finalization_optimization_mode" to "1"
                     )
-                    Log.i(TAG, "Attempting Tier 1 (QNN HTP NPU) session creation for ${modelFile.name} with options: $qnnProviderOptions")
+                    Log.i(TAG, "Attempting Tier 1 (QNN HTP NPU) session creation for ${effectiveModelFile.name} with options: $qnnProviderOptions")
                     qnnOptions.addQnn(qnnProviderOptions)
-                    val session = env.createSession(modelFile.absolutePath, qnnOptions)
-                    Log.i(TAG, "SUCCESS: Tier 1 (QNN HTP NPU) session created for ${modelFile.name}")
+                    val session = env.createSession(effectiveModelFile.absolutePath, qnnOptions)
+                    Log.i(TAG, "SUCCESS: Tier 1 (QNN HTP NPU) session created for ${effectiveModelFile.name}")
                     return session
                 }
             } catch (t: Throwable) {
-                Log.w(TAG, "Tier 1 (QNN) session creation failed for ${modelFile.name}, falling back", t)
+                Log.w(TAG, "Tier 1 (QNN) session creation failed for ${effectiveModelFile.name}, falling back", t)
             }
         }
 
         // Tier 2: Try Android NNAPI Execution Provider if supported in current build
-        if (availableProviders.contains(OrtProvider.NNAPI)) {
+        if (availableProviders.contains(OrtProvider.NNAPI) && !isUnoptimizedFloatVae) {
             try {
                 OrtSession.SessionOptions().use { nnapiOptions ->
                     nnapiOptions.setIntraOpNumThreads(4)
                     nnapiOptions.addNnapi()
-                    return env.createSession(modelFile.absolutePath, nnapiOptions)
+                    return env.createSession(effectiveModelFile.absolutePath, nnapiOptions)
                 }
             } catch (t: Throwable) {
-                Log.w(TAG, "Tier 2 (NNAPI) session creation failed for ${modelFile.name}, falling back", t)
+                Log.w(TAG, "Tier 2 (NNAPI) session creation failed for ${effectiveModelFile.name}, falling back", t)
             }
         }
 
         // Tier 3: Fallback to CPU with multi-threading
         OrtSession.SessionOptions().use { cpuOptions ->
             cpuOptions.setIntraOpNumThreads(4)
-            return env.createSession(modelFile.absolutePath, cpuOptions)
+            return env.createSession(effectiveModelFile.absolutePath, cpuOptions)
         }
     }
 
