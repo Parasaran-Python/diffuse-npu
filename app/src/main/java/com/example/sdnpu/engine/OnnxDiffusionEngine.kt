@@ -108,6 +108,18 @@ object OnnxDiffusionEngine {
         }
     }
 
+    fun resolveQnnBackendPath(): String {
+        val candidatePaths = listOf(
+            "/vendor/lib64/snap/libQnnHtp.so",
+            "/vendor/lib64/libQnnHtp.so",
+            "/system/vendor/lib64/snap/libQnnHtp.so"
+        )
+        for (path in candidatePaths) {
+            if (File(path).exists()) return path
+        }
+        return "libQnnHtp.so"
+    }
+
     fun createSessionOptions(): OrtSession.SessionOptions {
         val options = OrtSession.SessionOptions()
         options.setIntraOpNumThreads(4)
@@ -117,6 +129,7 @@ object OnnxDiffusionEngine {
             try {
                 val qnnOptions = mapOf(
                     "backend_type" to "HTP",
+                    "backend_path" to resolveQnnBackendPath(),
                     "htp_performance_mode" to "burst",
                     "htp_graph_finalization_optimization_mode" to "3"
                 )
@@ -148,6 +161,7 @@ object OnnxDiffusionEngine {
                     qnnOptions.addConfigEntry("session.load_model_format", "ONNX")
                     val qnnProviderOptions = mapOf(
                         "backend_type" to "HTP",
+                        "backend_path" to resolveQnnBackendPath(),
                         "htp_performance_mode" to "burst",
                         "htp_graph_finalization_optimization_mode" to "3"
                     )

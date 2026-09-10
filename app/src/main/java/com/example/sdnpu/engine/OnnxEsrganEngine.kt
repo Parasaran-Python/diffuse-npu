@@ -76,6 +76,7 @@ object OnnxEsrganEngine {
                     qnnOptions.addConfigEntry("session.load_model_format", "ONNX")
                     val qnnProviderOptions = mapOf(
                         "backend_type" to "HTP",
+                        "backend_path" to OnnxDiffusionEngine.resolveQnnBackendPath(),
                         "htp_performance_mode" to "burst",
                         "htp_graph_finalization_optimization_mode" to "3"
                     )

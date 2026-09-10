@@ -98,7 +98,7 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
 
     // ONNX Runtime Mobile with QNN and NNAPI support
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android-qnn:1.20.0")
 
     debugImplementation(libs.compose.ui.tooling)
 
