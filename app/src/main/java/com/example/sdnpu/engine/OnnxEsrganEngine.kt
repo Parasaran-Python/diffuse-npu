@@ -65,52 +65,18 @@ object OnnxEsrganEngine {
         return rgba
     }
 
-    fun createSession(env: OrtEnvironment, modelFile: File): OrtSession {
-        val availableProviders = runCatching { OrtEnvironment.getAvailableProviders() }.getOrNull() ?: emptySet()
-
-        // Tier 1: Qualcomm QNN Execution Provider (HTP Backend)
-        if (availableProviders.contains(OrtProvider.QNN)) {
-            try {
-                OrtSession.SessionOptions().use { qnnOptions ->
-                    qnnOptions.setIntraOpNumThreads(4)
-                    qnnOptions.addConfigEntry("session.load_model_format", "ONNX")
-                    qnnOptions.addConfigEntry("session.disable_prepacking", "1")
-                    val qnnProviderOptions = mapOf(
-                        "backend_path" to OnnxDiffusionEngine.resolveQnnBackendPath(),
-                        "enable_htp_fp16_precision" to "1",
-                        "enable_htp_weight_sharing" to "1",
-                        "htp_performance_mode" to "burst",
-                        "htp_graph_finalization_optimization_mode" to "1"
-                    )
-                    Log.i(TAG, "Attempting Tier 1 (QNN HTP NPU) session creation for ${modelFile.name} with options: $qnnProviderOptions")
-                    qnnOptions.addQnn(qnnProviderOptions)
-                    val session = env.createSession(modelFile.absolutePath, qnnOptions)
-                    Log.i(TAG, "SUCCESS: Tier 1 (QNN HTP NPU) session created for ${modelFile.name}")
-                    return session
-                }
-            } catch (t: Throwable) {
-                Log.w(TAG, "Tier 1 (QNN) session creation failed for ${modelFile.name}, falling back", t)
-            }
-        }
-
-        // Tier 2: Android NNAPI Execution Provider
-        if (availableProviders.contains(OrtProvider.NNAPI)) {
-            try {
-                OrtSession.SessionOptions().use { nnapiOptions ->
-                    nnapiOptions.setIntraOpNumThreads(4)
-                    nnapiOptions.addNnapi()
-                    return env.createSession(modelFile.absolutePath, nnapiOptions)
-                }
-            } catch (t: Throwable) {
-                Log.w(TAG, "Tier 2 (NNAPI) session creation failed for ${modelFile.name}, falling back", t)
-            }
-        }
-
-        // Tier 3: CPU fallback
-        OrtSession.SessionOptions().use { cpuOptions ->
-            cpuOptions.setIntraOpNumThreads(4)
-            return env.createSession(modelFile.absolutePath, cpuOptions)
-        }
+    fun createSession(
+        env: OrtEnvironment,
+        modelFile: File,
+        preferredBackendType: BackendType? = null
+    ): OrtSession {
+        val (session, _) = com.example.sdnpu.engine.npu.NpuBackendRegistry.createSession(
+            env = env,
+            modelFile = modelFile,
+            profile = null,
+            preferredBackendType = preferredBackendType
+        )
+        return session
     }
 
     fun upscale(
