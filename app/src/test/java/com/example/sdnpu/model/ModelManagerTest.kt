@@ -653,4 +653,63 @@ class ModelManagerTest {
         assertTrue(statuses.any { it is DownloadStatus.Failed })
         assertEquals(5, server.requestCount)
     }
+
+    @Test
+    fun testZipBundleDownloadAndExtraction() = runBlocking {
+        val zipBytes = java.io.ByteArrayOutputStream().use { baos ->
+            java.util.zip.ZipOutputStream(baos).use { zos ->
+                zos.putNextEntry(java.util.zip.ZipEntry("text_encoder.onnx"))
+                zos.write("test_tensor_data".toByteArray())
+                zos.closeEntry()
+            }
+            baos.toByteArray()
+        }
+
+        server.enqueue(MockResponse().setResponseCode(200).setBody(okio.Buffer().write(zipBytes)))
+
+        val manifest = ModelManifest(
+            modelId = "zip_test_model",
+            version = "1.0",
+            components = emptyList(),
+            qnnSdkVersion = "2.49.0",
+            targetHtp = "v73"
+        )
+
+        val zipUrl = server.url("/bundle.zip").toString()
+        val statuses = modelManager.downloadModel(manifest, zipUrl).toList()
+        assertTrue(statuses.any { it is DownloadStatus.Completed })
+        val extractedFile = File(File(modelsDir, "zip_test_model"), "text_encoder.onnx")
+        assertTrue(extractedFile.exists())
+        assertEquals("test_tensor_data", extractedFile.readText())
+    }
+
+    @Test
+    fun testZipBundleRejectsZipSlipPathTraversal() = runBlocking {
+        val zipBytes = java.io.ByteArrayOutputStream().use { baos ->
+            java.util.zip.ZipOutputStream(baos).use { zos ->
+                zos.putNextEntry(java.util.zip.ZipEntry("../../../evil.sh"))
+                zos.write("echo pwned".toByteArray())
+                zos.closeEntry()
+            }
+            baos.toByteArray()
+        }
+
+        server.enqueue(MockResponse().setResponseCode(200).setBody(okio.Buffer().write(zipBytes)))
+
+        val manifest = ModelManifest(
+            modelId = "zip_slip_model",
+            version = "1.0",
+            components = emptyList(),
+            qnnSdkVersion = "2.49.0",
+            targetHtp = "v73"
+        )
+
+        val zipUrl = server.url("/slip.zip").toString()
+        val statuses = modelManager.downloadModel(manifest, zipUrl).toList()
+        assertTrue(statuses.any { it is DownloadStatus.Completed })
+        val evilFile = File(modelsDir.parentFile, "evil.sh")
+        assertFalse(evilFile.exists())
+        val safeFile = File(File(modelsDir, "zip_slip_model"), "evil.sh")
+        assertTrue(safeFile.exists())
+    }
 }

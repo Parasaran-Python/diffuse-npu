@@ -156,14 +156,19 @@ class ModelManager(
                     }
                 }
 
-                // Extract zip
+                // Extract zip safely to prevent Zip Slip vulnerabilities (CWE-022)
                 emit(DownloadStatus.DownloadingComponent("Extracting NPU models...", 100L, 100L, 100))
+                val canonicalModelDir = modelDir.canonicalFile
                 java.util.zip.ZipInputStream(zipPartFile.inputStream().buffered()).use { zis ->
                     var entry = zis.nextEntry
                     while (entry != null) {
-                        val name = entry.name.substringAfterLast('/')
-                        if (!entry.isDirectory && name.isNotEmpty()) {
-                            val outFile = File(modelDir, name)
+                        val cleanName = File(entry.name).name
+                        if (!entry.isDirectory && cleanName.isNotEmpty() && cleanName != ".." && cleanName != ".") {
+                            val outFile = File(modelDir, cleanName)
+                            val canonicalOutFile = outFile.canonicalFile
+                            if (!canonicalOutFile.path.startsWith(canonicalModelDir.path + File.separator)) {
+                                throw SecurityException("Zip entry traverses outside destination directory (Zip Slip): ${entry.name}")
+                            }
                             FileOutputStream(outFile).buffered().use { fos ->
                                 zis.copyTo(fos)
                             }
