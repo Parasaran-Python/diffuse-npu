@@ -95,4 +95,18 @@ class NpuBackendRegistryTest {
             tempDir.deleteRecursively()
         }
     }
+
+    @Test
+    fun testFormatOrtErrorMessageTranslatesBiasGelu() {
+        val flatModelFile = File("/models/sdturbo/text_encoder.onnx")
+        val fakeException = RuntimeException("Failed to find kernel for com.microsoft.BiasGelu(1) (node:'BiasGelu' ep:'CPUExecutionProvider')")
+        val msg1 = NpuBackendRegistry.formatOrtErrorMessage(flatModelFile, fakeException)
+        assertTrue(msg1.contains("Model 'sdturbo'"))
+        assertTrue(msg1.contains("BiasGelu/Gelu"))
+        assertTrue(msg1.contains("SD 1.5 (Snapdragon NPU)"))
+
+        val nestedModelFile = File("/models/sdturbo/text_encoder/model.onnx")
+        val msg2 = NpuBackendRegistry.formatOrtErrorMessage(nestedModelFile, fakeException)
+        assertTrue(msg2.contains("Model 'sdturbo'"))
+    }
 }

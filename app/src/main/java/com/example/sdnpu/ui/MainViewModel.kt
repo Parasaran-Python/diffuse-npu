@@ -292,11 +292,14 @@ class MainViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             val models = modelManager.listLocalModels()
             _localModels.value = models
-            if ((!models.contains(_params.value.modelId) || _params.value.modelId == "sdturbo") && models.contains("sd15_qnn_npu")) {
+            val currentInstalled = models.contains(_params.value.modelId)
+            if (!currentInstalled && models.isNotEmpty()) {
+                val targetModel = if (models.contains("sd15_qnn_npu")) "sd15_qnn_npu" else models.first()
+                val isSd15 = targetModel == "sd15_qnn_npu"
                 _params.value = _params.value.copy(
-                    modelId = "sd15_qnn_npu",
-                    steps = if (_params.value.steps <= 4) 20 else _params.value.steps,
-                    cfgScale = if (_params.value.cfgScale <= 1.0f) 7.5f else _params.value.cfgScale
+                    modelId = targetModel,
+                    steps = if (isSd15 && _params.value.steps <= 4) 20 else _params.value.steps,
+                    cfgScale = if (isSd15 && _params.value.cfgScale <= 1.0f) 7.5f else _params.value.cfgScale
                 )
             }
         }

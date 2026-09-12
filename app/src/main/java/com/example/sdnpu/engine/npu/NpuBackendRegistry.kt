@@ -89,24 +89,20 @@ object NpuBackendRegistry {
             }
         }
 
-        // Ultimate CPU fallback ONLY if CPU wasn't already attempted
-        val cpuBackend = getBackend(BackendType.CPU)
-        if (cpuBackend != null && !candidateBackends.contains(cpuBackend) && cpuBackend.canExecute(modelFile, profile)) {
-            try {
-                val fallbackSession = cpuBackend.createSession(env, modelFile, profile)
-                return Pair(fallbackSession, cpuBackend)
-            } catch (t: Throwable) {
-                lastError = t
-            }
-        }
-
         val errMsg = lastError?.message ?: "No compatible execution backend available"
         if (errMsg.contains("ORT_NOT_IMPLEMENTED") || errMsg.contains("BiasGelu") || errMsg.contains("Gelu")) {
-            throw IllegalStateException(
-                "Model '${modelFile.parentFile?.name ?: modelFile.name}' contains unsupported FP16 operators in ONNX Runtime Mobile (BiasGelu/Gelu). Please select 'SD 1.5 (Snapdragon NPU)' which is 100% precompiled and verified for Hexagon NPU acceleration.",
-                lastError
-            )
+            throw IllegalStateException(formatOrtErrorMessage(modelFile, lastError), lastError)
         }
         throw lastError ?: IllegalStateException("Failed to create inference session for ${modelFile.name}")
+    }
+
+    internal fun formatOrtErrorMessage(modelFile: File, error: Throwable?): String {
+        val componentFolderNames = setOf("text_encoder", "unet", "vae", "vae_decoder")
+        val modelDisplayName = if (modelFile.parentFile?.name in componentFolderNames) {
+            modelFile.parentFile?.parentFile?.name ?: modelFile.name
+        } else {
+            modelFile.parentFile?.name ?: modelFile.name
+        }
+        return "Model '$modelDisplayName' contains unsupported FP16 operators in ONNX Runtime Mobile (BiasGelu/Gelu). Please select 'SD 1.5 (Snapdragon NPU)' which is 100% precompiled and verified for Hexagon NPU acceleration."
     }
 }
