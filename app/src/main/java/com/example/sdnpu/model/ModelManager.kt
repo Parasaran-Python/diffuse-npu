@@ -111,6 +111,72 @@ class ModelManager(
             val manifestFile = File(modelDir, "manifest.json")
             manifestFile.writeText(gson.toJson(manifest))
 
+            if (baseUrl.trim().endsWith(".zip", ignoreCase = true)) {
+                val zipUrl = baseUrl.trim()
+                val zipPartFile = File(modelDir, "bundle.zip.part")
+                currentPartFile = zipPartFile
+
+                val request = Request.Builder().url(zipUrl).build()
+                val call = client.newCall(request)
+                activeCall = call
+                call.execute().use { response ->
+                    if (!response.isSuccessful) {
+                        cleanupIfIncomplete()
+                        emit(DownloadStatus.Failed("HTTP ${response.code} downloading model bundle"))
+                        return@flow
+                    }
+                    val body = response.body ?: run {
+                        cleanupIfIncomplete()
+                        emit(DownloadStatus.Failed("Empty response body"))
+                        return@flow
+                    }
+                    val totalBytes = body.contentLength()
+                    var downloadedBytes = 0L
+                    body.byteStream().use { input ->
+                        BufferedOutputStream(FileOutputStream(zipPartFile), 262144).use { output ->
+                            val buf = ByteArray(262144)
+                            var read: Int
+                            var lastReportTime = System.currentTimeMillis()
+                            while (input.read(buf).also { read = it } != -1) {
+                                if (isPaused) {
+                                    val pct = if (totalBytes > 0) ((downloadedBytes * 100) / totalBytes).toInt() else 0
+                                    emit(DownloadStatus.Paused(manifest.modelId, "bundle.zip", downloadedBytes, totalBytes, pct))
+                                    return@flow
+                                }
+                                output.write(buf, 0, read)
+                                downloadedBytes += read
+                                val now = System.currentTimeMillis()
+                                if (now - lastReportTime >= 100 || downloadedBytes == totalBytes) {
+                                    lastReportTime = now
+                                    val progress = if (totalBytes > 0) ((downloadedBytes * 100) / totalBytes).toInt() else 0
+                                    emit(DownloadStatus.DownloadingComponent("model_bundle.zip", downloadedBytes, totalBytes, progress))
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Extract zip
+                emit(DownloadStatus.DownloadingComponent("Extracting NPU models...", 100L, 100L, 100))
+                java.util.zip.ZipInputStream(zipPartFile.inputStream().buffered()).use { zis ->
+                    var entry = zis.nextEntry
+                    while (entry != null) {
+                        val name = entry.name.substringAfterLast('/')
+                        if (!entry.isDirectory && name.isNotEmpty()) {
+                            val outFile = File(modelDir, name)
+                            FileOutputStream(outFile).buffered().use { fos ->
+                                zis.copyTo(fos)
+                            }
+                        }
+                        entry = zis.nextEntry
+                    }
+                }
+                zipPartFile.delete()
+                completeFile.createNewFile()
+                emit(DownloadStatus.Completed(manifest.modelId, modelDir.absolutePath))
+                return@flow
+            }
+
             for (comp in manifest.components) {
                 currentComponentName = comp.name
                 val targetFile = File(modelDir, comp.file)
@@ -377,7 +443,8 @@ class ModelManager(
                     File(f, ".complete").exists() ||
                     REQUIRED_DIFFUSION_ONNX_FILES.all { comp ->
                         val baseComp = comp.removeSuffix(".onnx")
-                        File(f, comp).exists() || File(File(f, baseComp), "model.onnx").exists()
+                        File(f, comp).exists() || File(File(f, baseComp), "model.onnx").exists() ||
+                        (comp == "vae_decoder.onnx" && File(f, "vae.onnx").exists())
                     } ||
                     (f.name.startsWith("realesrgan") && (
                         (File(f, "model.onnx").exists() && File(f, "model.onnx").length() > 0) ||
@@ -423,7 +490,8 @@ class ModelManager(
             } else {
                 REQUIRED_DIFFUSION_ONNX_FILES.all { comp ->
                     val baseComp = comp.removeSuffix(".onnx")
-                    File(modelDir, comp).exists() || File(File(modelDir, baseComp), "model.onnx").exists()
+                    File(modelDir, comp).exists() || File(File(modelDir, baseComp), "model.onnx").exists() ||
+                    (comp == "vae_decoder.onnx" && File(modelDir, "vae.onnx").exists())
                 }
             }
         }
@@ -442,6 +510,7 @@ class ModelManager(
             }
         }
         return when (modelId) {
+            "sd15_qnn_npu" -> ModelManifest.sd15QnnNpu()
             "sdturbo" -> ModelManifest.sdturbo()
             "dreamshaper_v8_base" -> ModelManifest.dreamshaper_v8_base()
             "realesrgan_x2plus" -> ModelManifest.realesrgan_x2plus()

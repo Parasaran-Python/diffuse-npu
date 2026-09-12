@@ -167,6 +167,125 @@ class OnnxDiffusionEngineTest {
             tempDir.deleteRecursively()
         }
     }
+
+    @Test
+    fun testNchwToNhwcAndBackPreservesValues() {
+        val c = 4
+        val h = 64
+        val w = 64
+        val total = c * h * w
+        val originalNchw = FloatArray(total) { i -> (i * 0.01f) - 50.0f }
+
+        val nhwc = OnnxDiffusionEngine.nchwToNhwc(originalNchw, c, h, w)
+        assertEquals(total, nhwc.size)
+
+        // Verify specific element indexing
+        // Channel 0, row 0, col 0 -> index 0 in both
+        assertEquals(originalNchw[0], nhwc[0], 1e-6f)
+        // Channel 1, row 0, col 0 -> index (1 * 64 * 64) in NCHW, index 1 in NHWC
+        assertEquals(originalNchw[h * w], nhwc[1], 1e-6f)
+        // Channel 3, row 63, col 63 -> index (total - 1) in both
+        assertEquals(originalNchw[total - 1], nhwc[total - 1], 1e-6f)
+
+        // Inverse
+        val roundtripNchw = OnnxDiffusionEngine.nhwcToNchw(nhwc, c, h, w)
+        assertEquals(total, roundtripNchw.size)
+        for (i in 0 until total) {
+            assertEquals("Mismatch at index $i", originalNchw[i], roundtripNchw[i], 1e-6f)
+        }
+    }
+
+    @Test
+    fun testQuantizeAndDequantizeUint16() {
+        val scale = OnnxDiffusionEngine.QNN_UNET_LATENT_SCALE
+        val zp = OnnxDiffusionEngine.QNN_UNET_LATENT_ZP
+        val original = floatArrayOf(-2.5f, 0.0f, 1.25f, 5.0f)
+
+        val quantizedShorts = OnnxDiffusionEngine.quantizeFloatToUint16(original, scale, zp)
+        assertEquals(4, quantizedShorts.size)
+
+        val dequantized = OnnxDiffusionEngine.dequantizeUint16ToFloat(quantizedShorts, scale, zp)
+        for (i in original.indices) {
+            assertEquals("Quantization error beyond tolerance at index $i", original[i], dequantized[i], scale)
+        }
+    }
+
+    @Test
+    fun testNhwcUint16RgbToArgbBytes() {
+        // [1, 2, 2, 3] RGB uint16 pixels
+        // Pixel 0: Black (0, 0, 0)
+        // Pixel 1: Full White (65535, 65535, 65535)
+        // Pixel 2: Pure Red (65535, 0, 0)
+        // Pixel 3: Half-brightness Gray (32768, 32768, 32768)
+        val shorts = shortArrayOf(
+            0, 0, 0,
+            (-1).toShort(), (-1).toShort(), (-1).toShort(), // 65535 as unsigned short
+            (-1).toShort(), 0, 0,
+            (32768).toShort(), (32768).toShort(), (32768).toShort()
+        )
+
+        val bytes = OnnxDiffusionEngine.nhwcUint16RgbToArgbBytes(shorts, width = 2, height = 2)
+        assertEquals(16, bytes.size)
+
+        // Pixel 0 (Black)
+        assertEquals(0.toByte(), bytes[0]) // R
+        assertEquals(0.toByte(), bytes[1]) // G
+        assertEquals(0.toByte(), bytes[2]) // B
+        assertEquals(255.toByte(), bytes[3]) // A
+
+        // Pixel 1 (White)
+        assertEquals(255.toByte(), bytes[4]) // R
+        assertEquals(255.toByte(), bytes[5]) // G
+        assertEquals(255.toByte(), bytes[6]) // B
+        assertEquals(255.toByte(), bytes[7]) // A
+
+        // Pixel 2 (Pure Red)
+        assertEquals(255.toByte(), bytes[8]) // R
+        assertEquals(0.toByte(), bytes[9]) // G
+        assertEquals(0.toByte(), bytes[10]) // B
+        assertEquals(255.toByte(), bytes[11]) // A
+
+        // Pixel 3 (Gray 128)
+        assertEquals(128.toByte(), bytes[12]) // R
+        assertEquals(128.toByte(), bytes[13]) // G
+        assertEquals(128.toByte(), bytes[14]) // B
+        assertEquals(255.toByte(), bytes[15]) // A
+    }
+
+    @Test
+    fun testResolveComponentFileWithVaeOnnx() {
+        val tempDir = File(System.getProperty("java.io.tmpdir"), "test_vae_resolve_${System.currentTimeMillis()}")
+        tempDir.mkdirs()
+        try {
+            val vaeFile = File(tempDir, "vae.onnx")
+            vaeFile.writeBytes(ByteArray(10))
+
+            // resolveComponentFile("vae_decoder") should fall back to "vae.onnx"
+            val resolved = OnnxDiffusionEngine.resolveComponentFile(tempDir, "vae_decoder")
+            assertEquals("vae.onnx", resolved.name)
+            assertTrue(resolved.exists())
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun testQuantizationConstantsMatchQnnSpecifications() {
+        assertEquals(0.00093035854f, OnnxDiffusionEngine.QNN_TEXT_ENC_SCALE, 1e-7f)
+        assertEquals(30063, OnnxDiffusionEngine.QNN_TEXT_ENC_ZP)
+        assertEquals(0.00024176309f, OnnxDiffusionEngine.QNN_UNET_LATENT_SCALE, 1e-7f)
+        assertEquals(33983, OnnxDiffusionEngine.QNN_UNET_LATENT_ZP)
+        assertEquals(0.014770733f, OnnxDiffusionEngine.QNN_UNET_TIMESTEP_SCALE, 1e-7f)
+        assertEquals(0, OnnxDiffusionEngine.QNN_UNET_TIMESTEP_ZP)
+        assertEquals(0.0009331561f, OnnxDiffusionEngine.QNN_UNET_TEXT_EMB_SCALE, 1e-7f)
+        assertEquals(30103, OnnxDiffusionEngine.QNN_UNET_TEXT_EMB_ZP)
+        assertEquals(0.00018817355f, OnnxDiffusionEngine.QNN_UNET_OUT_LATENT_SCALE, 1e-7f)
+        assertEquals(32340, OnnxDiffusionEngine.QNN_UNET_OUT_LATENT_ZP)
+        assertEquals(0.00034003708f, OnnxDiffusionEngine.QNN_VAE_LATENT_SCALE, 1e-7f)
+        assertEquals(34382, OnnxDiffusionEngine.QNN_VAE_LATENT_ZP)
+        assertEquals(0.000015259022f, OnnxDiffusionEngine.QNN_VAE_IMAGE_SCALE, 1e-7f)
+        assertEquals(0, OnnxDiffusionEngine.QNN_VAE_IMAGE_ZP)
+    }
 }
 
 

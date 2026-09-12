@@ -233,7 +233,8 @@ class MainViewModelTest {
     @Test
     fun testModelVariants() {
         val variants = ModelVariants.getSdVariants()
-        assertEquals(2, variants.size)
+        assertEquals(3, variants.size)
+        assertTrue(ModelVariants.isSdModel("sd15_qnn_npu"))
         assertTrue(ModelVariants.isSdModel("dreamshaper_v8_base"))
         assertTrue(ModelVariants.isSdModel("sdturbo"))
         assertFalse(ModelVariants.isSdModel("realesrgan_x2plus"))

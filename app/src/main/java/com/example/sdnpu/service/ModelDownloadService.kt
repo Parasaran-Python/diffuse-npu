@@ -197,6 +197,7 @@ class ModelDownloadService : Service() {
         currentUrl = url
         currentModelId = modelId ?: run {
             when {
+                url.contains("qcs8550", ignoreCase = true) || url.contains("sd15_qnn_npu", ignoreCase = true) -> "sd15_qnn_npu"
                 url.contains("sd-turbo", ignoreCase = true) || url.contains("sdturbo", ignoreCase = true) -> "sdturbo"
                 url.contains("dreamshaper", ignoreCase = true) -> "dreamshaper_v8_base"
                 url.contains("realesrgan", ignoreCase = true) -> {
@@ -208,7 +209,7 @@ class ModelDownloadService : Service() {
                 }
                 url.contains("anime", ignoreCase = true) -> "dreamshaper_v8_anime"
                 url.contains("realistic", ignoreCase = true) -> "dreamshaper_v8_realistic"
-                else -> "sdturbo"
+                else -> "sd15_qnn_npu"
             }
         }
 
@@ -233,6 +234,7 @@ class ModelDownloadService : Service() {
                 manifestRes.getOrThrow()
             } else {
                 when (currentModelId) {
+                    "sd15_qnn_npu" -> ModelManifest.sd15QnnNpu()
                     "sdturbo" -> ModelManifest.sdturbo()
                     "dreamshaper_v8_base" -> ModelManifest.dreamshaper_v8_base()
                     "dreamshaper_v8_anime" -> ModelManifest.dreamshaper_v8_anime()
@@ -266,6 +268,7 @@ class ModelDownloadService : Service() {
         } else if (currentModelId == null && currentUrl != null) {
             val u = currentUrl!!
             currentModelId = when {
+                u.contains("qcs8550", ignoreCase = true) || u.contains("sd15_qnn_npu", ignoreCase = true) -> "sd15_qnn_npu"
                 u.contains("sd-turbo", ignoreCase = true) || u.contains("sdturbo", ignoreCase = true) -> "sdturbo"
                 u.contains("dreamshaper", ignoreCase = true) -> "dreamshaper_v8_base"
                 u.contains("realesrgan", ignoreCase = true) -> {
@@ -277,7 +280,7 @@ class ModelDownloadService : Service() {
                 }
                 u.contains("anime", ignoreCase = true) -> "dreamshaper_v8_anime"
                 u.contains("realistic", ignoreCase = true) -> "dreamshaper_v8_realistic"
-                else -> "sdturbo"
+                else -> "sd15_qnn_npu"
             }
         }
 
@@ -316,6 +319,7 @@ class ModelDownloadService : Service() {
                     manifestRes.getOrThrow()
                 } else {
                     when (currentModelId) {
+                        "sd15_qnn_npu" -> ModelManifest.sd15QnnNpu()
                         "sdturbo" -> ModelManifest.sdturbo()
                         "dreamshaper_v8_base" -> ModelManifest.dreamshaper_v8_base()
                         "dreamshaper_v8_anime" -> ModelManifest.dreamshaper_v8_anime()

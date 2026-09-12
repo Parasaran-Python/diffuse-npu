@@ -94,6 +94,21 @@ data class ModelManifest(
             targetHtp = "v73"
         )
 
+        fun sd15QnnNpu(sha256Prefix: String = ""): ModelManifest = ModelManifest(
+            modelId = "sd15_qnn_npu",
+            version = "1.5",
+            components = listOf(
+                ModelComponent("text_encoder", "text_encoder.onnx", "$sha256Prefix.text_encoder"),
+                ModelComponent("text_encoder_context", "text_encoder_qairt_context.bin", "$sha256Prefix.text_encoder_context"),
+                ModelComponent("unet", "unet.onnx", "$sha256Prefix.unet"),
+                ModelComponent("unet_context", "unet_qairt_context.bin", "$sha256Prefix.unet_context"),
+                ModelComponent("vae", "vae.onnx", "$sha256Prefix.vae"),
+                ModelComponent("vae_context", "vae_qairt_context.bin", "$sha256Prefix.vae_context")
+            ),
+            qnnSdkVersion = "ort-1.29",
+            targetHtp = "v73"
+        )
+
         fun sdTurbo(sha256Prefix: String = ""): ModelManifest = sdturbo(sha256Prefix)
     }
 }
@@ -114,10 +129,16 @@ data class ModelVariant(
 object ModelVariants {
     val SD_VARIANTS = listOf(
         ModelVariant(
+            id = "sd15_qnn_npu",
+            name = "SD 1.5 (Snapdragon NPU / S23 Ultra)",
+            description = "100% Hexagon NPU hardware acceleration (W8A16 ~2-3s inference)",
+            isDefault = true
+        ),
+        ModelVariant(
             id = "sdturbo",
             name = "SD-Turbo (ONNX / LCM)",
             description = "Fast 1-4 step inference with ONNX Runtime & QNN NPU",
-            isDefault = true
+            isDefault = false
         ),
         ModelVariant(
             id = "dreamshaper_v8_base",
@@ -142,11 +163,18 @@ data class ModelDownloadPreset(
 object ModelDownloadPresets {
     val PRESETS = listOf(
         ModelDownloadPreset(
+            id = "sd15_qnn_npu",
+            name = "SD 1.5 (Qualcomm NPU / S8 Gen 2)",
+            defaultUrl = "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/stable_diffusion_v1_5/releases/v0.62.1/stable_diffusion_v1_5-precompiled_qnn_onnx-w8a16-qualcomm_qcs8550_proxy.zip",
+            description = "100% Qualcomm Hexagon NPU hardware acceleration (Snapdragon 8 Gen 2 / W8A16)",
+            isDefault = true
+        ),
+        ModelDownloadPreset(
             id = "sdturbo",
             name = "SD-Turbo (ONNX / LCM)",
             defaultUrl = "https://huggingface.co/microsoft/sd-turbo-webnn/resolve/main/",
             description = "1-4 step inference with ONNX Runtime Mobile & Qualcomm NPU (Official Microsoft Weights)",
-            isDefault = true
+            isDefault = false
         ),
         ModelDownloadPreset(
             id = "dreamshaper_v8_base",

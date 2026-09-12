@@ -47,7 +47,7 @@ class MainActivity : ComponentActivity() {
             SdnpuTheme(darkTheme = isDark) {
                 var currentTab by rememberSaveable { mutableStateOf(NavTab.GENERATE) }
                 var showDownloadDialog by rememberSaveable { mutableStateOf(false) }
-                var targetDownloadModelId by rememberSaveable { mutableStateOf("sdturbo") }
+                var targetDownloadModelId by rememberSaveable { mutableStateOf("sd15_qnn_npu") }
 
                 val params by viewModel.params.collectAsState()
                 val pipelineState by viewModel.pipelineState.collectAsState()
@@ -159,6 +159,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        handleAutoGenerate(intent)
     }
 
     override fun onNewIntent(intent: android.content.Intent) {

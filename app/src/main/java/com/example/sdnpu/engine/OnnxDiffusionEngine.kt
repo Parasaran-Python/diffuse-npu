@@ -11,6 +11,9 @@ import android.util.Log
 import com.example.sdnpu.pipeline.GenerationParams
 import kotlinx.coroutines.CancellationException
 import java.io.File
+import java.nio.Buffer
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import java.nio.IntBuffer
 import java.nio.LongBuffer
@@ -91,21 +94,206 @@ object OnnxDiffusionEngine {
         }
     }
 
-    fun extractFloatsFromTensor(tensor: OnnxTensor): FloatArray {
-        val info = tensor.info
-        return if (info.type == OnnxJavaType.FLOAT16) {
-            val shortBuf = tensor.shortBuffer
-            val floats = FloatArray(shortBuf.remaining())
-            for (i in floats.indices) {
-                floats[i] = fp16ToFloat(shortBuf.get())
-            }
-            floats
-        } else {
-            val floatBuf = tensor.floatBuffer
-            val floats = FloatArray(floatBuf.remaining())
-            floatBuf.get(floats)
-            floats
+    fun createUint16Tensor(
+        env: OrtEnvironment,
+        shorts: ShortArray,
+        shape: LongArray
+    ): OnnxTensor {
+        val byteBuf = ByteBuffer.allocateDirect(shorts.size * 2).order(ByteOrder.nativeOrder())
+        val shortBuf = byteBuf.asShortBuffer()
+        shortBuf.put(shorts).flip()
+
+        return try {
+            val ortRuntimeClass = Class.forName("ai.onnxruntime.OnnxRuntime")
+            val ortApiHandleField = ortRuntimeClass.getDeclaredField("ortApiHandle").apply { isAccessible = true }
+            val ortApiHandle = ortApiHandleField.getLong(null)
+
+            val defaultAllocatorField = OrtEnvironment::class.java.getDeclaredField("defaultAllocator").apply { isAccessible = true }
+            val defaultAllocator = defaultAllocatorField.get(env)
+            val handleField = defaultAllocator.javaClass.getDeclaredField("handle").apply { isAccessible = true }
+            val allocatorHandle = handleField.getLong(defaultAllocator)
+
+            val createMethod = OnnxTensor::class.java.getDeclaredMethod(
+                "createTensorFromBuffer",
+                Long::class.javaPrimitiveType,
+                Long::class.javaPrimitiveType,
+                Buffer::class.java,
+                Int::class.javaPrimitiveType,
+                Long::class.javaPrimitiveType,
+                LongArray::class.java,
+                Int::class.javaPrimitiveType
+            ).apply { isAccessible = true }
+
+            val uint16OnnxType = TensorInfo.OnnxTensorType.ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT16.value
+            val nativeHandle = createMethod.invoke(
+                null,
+                ortApiHandle,
+                allocatorHandle,
+                shortBuf,
+                0,
+                (shorts.size * 2).toLong(),
+                shape,
+                uint16OnnxType
+            ) as Long
+
+            val tensorInfoConstructor = TensorInfo::class.java.getDeclaredConstructor(
+                LongArray::class.java,
+                OnnxJavaType::class.java,
+                TensorInfo.OnnxTensorType::class.java
+            ).apply { isAccessible = true }
+            val tensorInfo = tensorInfoConstructor.newInstance(
+                shape.clone(),
+                OnnxJavaType.INT16,
+                TensorInfo.OnnxTensorType.ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT16
+            )
+
+            val onnxTensorConstructor = OnnxTensor::class.java.getDeclaredConstructor(
+                Long::class.javaPrimitiveType,
+                Long::class.javaPrimitiveType,
+                TensorInfo::class.java,
+                Buffer::class.java,
+                Boolean::class.javaPrimitiveType
+            ).apply { isAccessible = true }
+
+            onnxTensorConstructor.newInstance(
+                nativeHandle,
+                allocatorHandle,
+                tensorInfo,
+                shortBuf,
+                false
+            )
+        } catch (t: Throwable) {
+            Log.w(TAG, "createUint16Tensor reflection failed, falling back to createTensor", t)
+            OnnxTensor.createTensor(env, ShortBuffer.wrap(shorts), shape)
         }
+    }
+
+    fun extractShortsFromTensor(tensor: OnnxTensor): ShortArray {
+        val shortBuf = tensor.byteBuffer.asShortBuffer()
+        val shorts = ShortArray(shortBuf.remaining())
+        shortBuf.get(shorts)
+        return shorts
+    }
+
+    // Qualcomm AI Hub Snapdragon 8 Gen 2 Quantization Constants
+    const val QNN_TEXT_ENC_SCALE = 0.00093035854f
+    const val QNN_TEXT_ENC_ZP = 30063
+
+    const val QNN_UNET_LATENT_SCALE = 0.00024176309f
+    const val QNN_UNET_LATENT_ZP = 33983
+
+    const val QNN_UNET_TIMESTEP_SCALE = 0.014770733f
+    const val QNN_UNET_TIMESTEP_ZP = 0
+
+    const val QNN_UNET_TEXT_EMB_SCALE = 0.0009331561f
+    const val QNN_UNET_TEXT_EMB_ZP = 30103
+
+    const val QNN_UNET_OUT_LATENT_SCALE = 0.00018817355f
+    const val QNN_UNET_OUT_LATENT_ZP = 32340
+
+    const val QNN_VAE_LATENT_SCALE = 0.00034003708f
+    const val QNN_VAE_LATENT_ZP = 34382
+
+    const val QNN_VAE_IMAGE_SCALE = 0.000015259022f
+    const val QNN_VAE_IMAGE_ZP = 0
+
+    fun extractFloatsFromTensor(
+        tensor: OnnxTensor,
+        quantScale: Float = 1.0f,
+        quantZeroPoint: Int = 0
+    ): FloatArray {
+        val info = tensor.info
+        return when {
+            info.type == OnnxJavaType.FLOAT16 -> {
+                val shortBuf = tensor.byteBuffer.asShortBuffer()
+                val floats = FloatArray(shortBuf.remaining())
+                for (i in floats.indices) {
+                    floats[i] = fp16ToFloat(shortBuf.get())
+                }
+                floats
+            }
+            info.type == OnnxJavaType.INT16 || info.onnxType == TensorInfo.OnnxTensorType.ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT16 -> {
+                val shortBuf = tensor.byteBuffer.asShortBuffer()
+                val floats = FloatArray(shortBuf.remaining())
+                for (i in floats.indices) {
+                    val u16 = shortBuf.get().toInt() and 0xFFFF
+                    floats[i] = (u16 - quantZeroPoint) * quantScale
+                }
+                floats
+            }
+            else -> {
+                val floatBuf = tensor.floatBuffer
+                val floats = FloatArray(floatBuf.remaining())
+                floatBuf.get(floats)
+                floats
+            }
+        }
+    }
+
+    fun nchwToNhwc(nchw: FloatArray, c: Int = 4, h: Int = 64, w: Int = 64): FloatArray {
+        val nhwc = FloatArray(nchw.size)
+        val hw = h * w
+        for (row in 0 until h) {
+            val rowW = row * w
+            for (col in 0 until w) {
+                val nhwcBase = (rowW + col) * c
+                for (ch in 0 until c) {
+                    nhwc[nhwcBase + ch] = nchw[ch * hw + rowW + col]
+                }
+            }
+        }
+        return nhwc
+    }
+
+    fun nhwcToNchw(nhwc: FloatArray, c: Int = 4, h: Int = 64, w: Int = 64): FloatArray {
+        val nchw = FloatArray(nhwc.size)
+        val hw = h * w
+        for (row in 0 until h) {
+            val rowW = row * w
+            for (col in 0 until w) {
+                val nhwcBase = (rowW + col) * c
+                for (ch in 0 until c) {
+                    nchw[ch * hw + rowW + col] = nhwc[nhwcBase + ch]
+                }
+            }
+        }
+        return nchw
+    }
+
+    fun quantizeFloatToUint16(floats: FloatArray, scale: Float, zeroPoint: Int): ShortArray {
+        val shorts = ShortArray(floats.size)
+        val invScale = 1.0f / scale
+        for (i in floats.indices) {
+            val q = Math.round(floats[i] * invScale + zeroPoint).coerceIn(0, 65535)
+            shorts[i] = (q and 0xFFFF).toShort()
+        }
+        return shorts
+    }
+
+    fun dequantizeUint16ToFloat(shorts: ShortArray, scale: Float, zeroPoint: Int): FloatArray {
+        val floats = FloatArray(shorts.size)
+        for (i in shorts.indices) {
+            val u16 = shorts[i].toInt() and 0xFFFF
+            floats[i] = (u16 - zeroPoint) * scale
+        }
+        return floats
+    }
+
+    fun nhwcUint16RgbToArgbBytes(shorts: ShortArray, width: Int = 512, height: Int = 512): ByteArray {
+        val pixelCount = minOf(width * height, shorts.size / 3)
+        val bytes = ByteArray(pixelCount * 4)
+        for (i in 0 until pixelCount) {
+            val sIdx = i * 3
+            val r = (shorts[sIdx].toInt() and 0xFFFF) ushr 8
+            val g = (shorts[sIdx + 1].toInt() and 0xFFFF) ushr 8
+            val b = (shorts[sIdx + 2].toInt() and 0xFFFF) ushr 8
+            val outIdx = i * 4
+            bytes[outIdx] = r.toByte()
+            bytes[outIdx + 1] = g.toByte()
+            bytes[outIdx + 2] = b.toByte()
+            bytes[outIdx + 3] = 255.toByte()
+        }
+        return bytes
     }
 
     @Volatile
@@ -172,12 +360,16 @@ object OnnxDiffusionEngine {
         val contextOnnxFile = File(modelFile.parentFile, "${modelFile.nameWithoutExtension}_ctx.onnx")
         val effectiveModelFile = if (contextOnnxFile.exists() && contextOnnxFile.length() > 0) contextOnnxFile else modelFile
 
+        val qairtContextBin = File(modelFile.parentFile, "${modelFile.nameWithoutExtension}_qairt_context.bin")
+        val hasQairtBin = qairtContextBin.exists() && qairtContextBin.length() > 0
+        val isPrecompiledContext = (effectiveModelFile == contextOnnxFile) || hasQairtBin ||
+                (effectiveModelFile.name.endsWith(".onnx") && effectiveModelFile.length() < 100_000_000L && hasQairtBin)
+
         // Unquantized raw ONNX models >1GB (like 1.6GB unet.onnx) cannot be JIT-compiled on-device
         // because libQnnHtpPrepare.so allocates >20GB virtual memory / 6.5GB swap, triggering Linux kernel LMKD SIGKILL.
         // Raw float vae_decoder.onnx has attention ops unsupported on HTP, causing 22s FastRPC IPC thrashing vs 2s on CPU.
-        val isPrecompiledContext = effectiveModelFile == contextOnnxFile
         val isUnquantizedLargeUnet = !isPrecompiledContext && effectiveModelFile.name == "unet.onnx" && effectiveModelFile.length() > 1_000_000_000L
-        val isUnoptimizedFloatVae = !isPrecompiledContext && effectiveModelFile.name == "vae_decoder.onnx"
+        val isUnoptimizedFloatVae = !isPrecompiledContext && (effectiveModelFile.name == "vae_decoder.onnx" || effectiveModelFile.name == "vae.onnx")
         val skipQnnJit = isUnquantizedLargeUnet || isUnoptimizedFloatVae
 
         if (isUnquantizedLargeUnet) {
@@ -281,7 +473,7 @@ object OnnxDiffusionEngine {
         promptTokens: IntArray,
         env: OrtEnvironment = OrtEnvironment.getEnvironment()
     ): FloatArray {
-        val inputName = textEncoderSession.inputNames.firstOrNull { it.contains("input_ids") }
+        val inputName = textEncoderSession.inputNames.firstOrNull { it.contains("tokens") || it.contains("input_ids") }
             ?: textEncoderSession.inputNames.iterator().next()
 
         val inputInfo = textEncoderSession.inputInfo[inputName]?.info as? TensorInfo
@@ -325,7 +517,7 @@ object OnnxDiffusionEngine {
                 var chosenTensor: OnnxTensor? = null
                 for (entry in res) {
                     val tensor = entry.value as? OnnxTensor ?: continue
-                    if (entry.key.contains("last_hidden_state")) {
+                    if (entry.key.contains("last_hidden_state") || entry.key.contains("text_embedding")) {
                         chosenTensor = tensor
                         break
                     }
@@ -337,7 +529,13 @@ object OnnxDiffusionEngine {
                     chosenTensor = (res.get(0) as? OnnxTensor) ?: (res.iterator().next().value as OnnxTensor)
                 }
 
-                return extractFloatsFromTensor(chosenTensor)
+                val isQuantizedU16 = chosenTensor.info.type == OnnxJavaType.INT16 ||
+                        chosenTensor.info.onnxType == TensorInfo.OnnxTensorType.ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT16
+                return if (isQuantizedU16) {
+                    extractFloatsFromTensor(chosenTensor, quantScale = QNN_TEXT_ENC_SCALE, quantZeroPoint = QNN_TEXT_ENC_ZP)
+                } else {
+                    extractFloatsFromTensor(chosenTensor)
+                }
             }
         } finally {
             inputTensor.close()
@@ -377,13 +575,67 @@ object OnnxDiffusionEngine {
         onStep: ((Int, Int) -> Unit)? = null,
         env: OrtEnvironment = OrtEnvironment.getEnvironment()
     ): FloatArray {
-        val isLcm = isLcmModel(modelId) || unetSession.inputNames.contains("timestep_cond")
+        val isQnnNpu = modelId == "sd15_qnn_npu" || unetSession.inputNames.contains("text_emb")
+        val isLcm = !isQnnNpu && (isLcmModel(modelId) || unetSession.inputNames.contains("timestep_cond"))
         val lcmSchedule = if (isLcm) LcmScheduler.getSchedule(steps) else null
-        val sdTurboSchedule = if (!isLcm) SdTurboScheduler.getSchedule(steps) else null
-        val numSteps = if (isLcm) lcmSchedule!!.timesteps.size else sdTurboSchedule!!.timesteps.size
+        val sdSchedule = if (!isLcm) SdTurboScheduler.getSchedule(steps) else null
+        val numSteps = if (isLcm) lcmSchedule!!.timesteps.size else sdSchedule!!.timesteps.size
 
         val currentLatents = latents.clone()
         val tempLatents = FloatArray(currentLatents.size)
+
+        if (isQnnNpu) {
+            val textEmbShorts = quantizeFloatToUint16(textEmbeddings, QNN_UNET_TEXT_EMB_SCALE, QNN_UNET_TEXT_EMB_ZP)
+            val textEmbTensor = createUint16Tensor(env, textEmbShorts, longArrayOf(1, 77, 768))
+
+            val latentName = unetSession.inputNames.firstOrNull { it == "latent" } ?: "latent"
+            val timeName = unetSession.inputNames.firstOrNull { it == "timestep" } ?: "timestep"
+            val textEmbName = unetSession.inputNames.firstOrNull { it == "text_emb" } ?: "text_emb"
+
+            try {
+                for (stepIndex in 0 until numSteps) {
+                    if (isCancelled) {
+                        throw CancellationException("Generation cancelled")
+                    }
+
+                    val scaledLatents = sdSchedule!!.scaleModelInput(currentLatents, stepIndex)
+                    val nhwcLatents = nchwToNhwc(scaledLatents, 4, 64, 64)
+                    val latentShorts = quantizeFloatToUint16(nhwcLatents, QNN_UNET_LATENT_SCALE, QNN_UNET_LATENT_ZP)
+                    val latentTensor = createUint16Tensor(env, latentShorts, longArrayOf(1, 64, 64, 4))
+
+                    latentTensor.use { lTensor ->
+                        val tVal = sdSchedule.timesteps[stepIndex]
+                        val qTime = (Math.round(tVal / QNN_UNET_TIMESTEP_SCALE) + QNN_UNET_TIMESTEP_ZP).coerceIn(0, 65535)
+                        val timeShort = (qTime and 0xFFFF).toShort()
+                        val timeTensor = createUint16Tensor(env, shortArrayOf(timeShort), longArrayOf(1, 1))
+
+                        timeTensor.use { tTensor ->
+                            val inputs = mapOf(
+                                latentName to lTensor,
+                                timeName to tTensor,
+                                textEmbName to textEmbTensor
+                            )
+                            val result = unetSession.run(inputs)
+                            result.use { res ->
+                                val outTensor = (res.get(0) as? OnnxTensor) ?: (res.iterator().next().value as OnnxTensor)
+                                val outShorts = extractShortsFromTensor(outTensor)
+                                val dequantNhwc = dequantizeUint16ToFloat(outShorts, QNN_UNET_OUT_LATENT_SCALE, QNN_UNET_OUT_LATENT_ZP)
+                                val noisePred = nhwcToNchw(dequantNhwc, 4, 64, 64)
+
+                                sdSchedule.step(currentLatents, noisePred, stepIndex, tempLatents)
+                                System.arraycopy(tempLatents, 0, currentLatents, 0, currentLatents.size)
+                            }
+                        }
+                    }
+
+                    onStep?.invoke(stepIndex + 1, numSteps)
+                }
+            } finally {
+                textEmbTensor.close()
+            }
+
+            return currentLatents
+        }
 
         val hiddenName = unetSession.inputNames.firstOrNull {
             it.contains("hidden") || it.contains("context")
@@ -424,7 +676,7 @@ object OnnxDiffusionEngine {
                 val scaledLatents = if (isLcm) {
                     currentLatents
                 } else {
-                    sdTurboSchedule!!.scaleModelInput(currentLatents, stepIndex)
+                    sdSchedule!!.scaleModelInput(currentLatents, stepIndex)
                 }
 
                 val sampleName = unetSession.inputNames.firstOrNull {
@@ -457,7 +709,7 @@ object OnnxDiffusionEngine {
                             OnnxTensor.createTensor(env, buf, longArrayOf(1))
                         }
                     } else {
-                        val tVal = sdTurboSchedule!!.timesteps[stepIndex]
+                        val tVal = sdSchedule!!.timesteps[stepIndex]
                         if (timeInfo?.type == OnnxJavaType.INT64) {
                             val buf = LongBuffer.wrap(longArrayOf(tVal.toLong()))
                             OnnxTensor.createTensor(env, buf, longArrayOf(1))
@@ -496,7 +748,7 @@ object OnnxDiffusionEngine {
                                 }
                                 LcmScheduler.step(currentLatents, noisePred, stepIndex, lcmSchedule!!, stepNoise, tempLatents)
                             } else {
-                                sdTurboSchedule!!.step(currentLatents, noisePred, stepIndex, tempLatents)
+                                sdSchedule!!.step(currentLatents, noisePred, stepIndex, tempLatents)
                             }
                             System.arraycopy(tempLatents, 0, currentLatents, 0, currentLatents.size)
                         }
@@ -529,6 +781,32 @@ object OnnxDiffusionEngine {
         } ?: vaeSession.inputNames.iterator().next()
 
         val latentInfo = vaeSession.inputInfo[inputName]?.info as? TensorInfo
+        val isQnnVae = (latentInfo?.shape?.contentEquals(longArrayOf(1, 64, 64, 4)) == true) ||
+                (latentInfo?.type == OnnxJavaType.INT16) ||
+                (vaeSession.outputNames.contains("image") && vaeSession.inputNames.contains("latent"))
+
+        if (isQnnVae) {
+            val nhwcLatents = nchwToNhwc(scaledLatents, 4, 64, 64)
+            val vaeLatentShorts = quantizeFloatToUint16(nhwcLatents, QNN_VAE_LATENT_SCALE, QNN_VAE_LATENT_ZP)
+            val latentTensor = createUint16Tensor(env, vaeLatentShorts, longArrayOf(1, 64, 64, 4))
+
+            return latentTensor.use { tensor ->
+                val result = vaeSession.run(mapOf(inputName to tensor))
+                result.use { res ->
+                    val outTensor = (res.get(0) as? OnnxTensor) ?: (res.iterator().next().value as OnnxTensor)
+                    if (outTensor.info.type == OnnxJavaType.INT16 ||
+                        outTensor.info.onnxType == TensorInfo.OnnxTensorType.ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT16 ||
+                        outTensor.info.shape.lastOrNull() == 3L) {
+                        val outShorts = extractShortsFromTensor(outTensor)
+                        nhwcUint16RgbToArgbBytes(outShorts, width, height)
+                    } else {
+                        val rgbFloats = extractFloatsFromTensor(outTensor)
+                        planarRgbToArgbBytes(rgbFloats, width, height)
+                    }
+                }
+            }
+        }
+
         val latentTensor = createFloatTensor(
             env,
             latentInfo?.type,
@@ -550,6 +828,10 @@ object OnnxDiffusionEngine {
     fun resolveComponentFile(modelDir: File, componentName: String): File {
         val flat = File(modelDir, "$componentName.onnx")
         if (flat.exists()) return flat
+        if (componentName == "vae_decoder") {
+            val vae = File(modelDir, "vae.onnx")
+            if (vae.exists()) return vae
+        }
         val nested = File(File(modelDir, componentName), "model.onnx")
         if (nested.exists()) return nested
         return flat

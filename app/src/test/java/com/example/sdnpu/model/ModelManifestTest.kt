@@ -155,11 +155,13 @@ class ModelManifestTest {
     @Test
     fun testConsolidatedModelVariants() {
         val variants = ModelVariants.getSdVariants()
-        assertEquals(2, variants.size)
+        assertEquals(3, variants.size)
         val ids = variants.map { it.id }
-        assertEquals(listOf("sdturbo", "dreamshaper_v8_base"), ids)
+        assertEquals(listOf("sd15_qnn_npu", "sdturbo", "dreamshaper_v8_base"), ids)
+        val sd15 = variants.find { it.id == "sd15_qnn_npu" }!!
+        assertTrue(sd15.isDefault)
+        assertEquals("SD 1.5 (Snapdragon NPU / S23 Ultra)", sd15.name)
         val sdturbo = variants.find { it.id == "sdturbo" }!!
-        assertTrue(sdturbo.isDefault)
         assertEquals("SD-Turbo (ONNX / LCM)", sdturbo.name)
         val dreamshaper = variants.find { it.id == "dreamshaper_v8_base" }!!
         assertEquals("DreamShaper v8 (LCM / ONNX)", dreamshaper.name)

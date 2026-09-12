@@ -41,7 +41,9 @@ class PipelineManager(
         for (dir in dirs) {
             val mDir = File(dir, modelId)
             val allPresent = requiredComponents.all { comp ->
-                File(mDir, "$comp.onnx").exists() || File(File(mDir, comp), "model.onnx").exists()
+                File(mDir, "$comp.onnx").exists() ||
+                File(File(mDir, comp), "model.onnx").exists() ||
+                (comp == "vae_decoder" && File(mDir, "vae.onnx").exists())
             }
             if (allPresent) {
                 return dir
@@ -63,7 +65,8 @@ class PipelineManager(
             val missing = requiredComponents.filter { comp ->
                 val flat = File(modelDir, "$comp.onnx")
                 val nested = File(File(modelDir, comp), "model.onnx")
-                !flat.exists() && !nested.exists()
+                val vaeFlat = if (comp == "vae_decoder") File(modelDir, "vae.onnx") else null
+                !flat.exists() && !nested.exists() && !(vaeFlat?.exists() == true)
             }
             if (missing.isEmpty()) {
                 return Result.success(Unit)
