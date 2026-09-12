@@ -169,6 +169,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleAutoGenerate(intent: android.content.Intent?) {
+        if (intent?.getBooleanExtra("run_hardware_benchmark", false) == true) {
+            lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                com.example.sdnpu.benchmark.HardwareBenchmarker.runFullBenchmark(applicationContext)
+            }
+        }
         if (intent?.getBooleanExtra("auto_generate", false) == true) {
             val prompt = intent.getStringExtra("prompt") ?: "A serene Japanese garden"
             val negativePrompt = intent.getStringExtra("negative_prompt") ?: ""
