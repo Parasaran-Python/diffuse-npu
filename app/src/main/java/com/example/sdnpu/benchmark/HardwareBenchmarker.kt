@@ -39,21 +39,21 @@ object HardwareBenchmarker {
                 try {
                     val textEncFile = File(sd15Dir, "text_encoder.onnx")
                     val loadStart = System.nanoTime()
-                    val textSession = htpBackend.createSession(env, textEncFile, profile)
-                    val loadMs = (System.nanoTime() - loadStart) / 1_000_000.0
-                    
-                    val tokens = IntArray(77) { 49406 } // standard padding/prompt tokens
-                    val infStart = System.nanoTime()
-                    val textEmb = OnnxDiffusionEngine.encodePrompt(textSession, tokens, env, profile)
-                    val infMs = (System.nanoTime() - infStart) / 1_000_000.0
-                    textSession.close()
+                    htpBackend.createSession(env, textEncFile, profile).use { textSession ->
+                        val loadMs = (System.nanoTime() - loadStart) / 1_000_000.0
+                        
+                        val tokens = IntArray(77) { 49406 } // standard padding/prompt tokens
+                        val infStart = System.nanoTime()
+                        val textEmb = OnnxDiffusionEngine.encodePrompt(textSession, tokens, env, profile)
+                        val infMs = (System.nanoTime() - infStart) / 1_000_000.0
 
-                    npuResults["text_encoder"] = mapOf(
-                        "status" to "SUCCESS",
-                        "session_init_ms" to loadMs,
-                        "inference_ms" to infMs,
-                        "output_dim" to textEmb.size
-                    )
+                        npuResults["text_encoder"] = mapOf(
+                            "status" to "SUCCESS",
+                            "session_init_ms" to loadMs,
+                            "inference_ms" to infMs,
+                            "output_dim" to textEmb.size
+                        )
+                    }
                 } catch (t: Throwable) {
                     npuResults["text_encoder"] = mapOf("status" to "FAILED", "error" to (t.message ?: t.toString()))
                 }
@@ -62,51 +62,51 @@ object HardwareBenchmarker {
                 try {
                     val unetFile = File(sd15Dir, "unet.onnx")
                     val loadStart = System.nanoTime()
-                    val unetSession = htpBackend.createSession(env, unetFile, profile)
-                    val loadMs = (System.nanoTime() - loadStart) / 1_000_000.0
+                    htpBackend.createSession(env, unetFile, profile).use { unetSession ->
+                        val loadMs = (System.nanoTime() - loadStart) / 1_000_000.0
 
-                    val dummyLatents = FloatArray(4 * 64 * 64) { 0.1f }
-                    val dummyTextEmb = FloatArray(77 * 768) { 0.1f }
-                    val dummyUncond = FloatArray(77 * 768) { 0.05f }
+                        val dummyLatents = FloatArray(4 * 64 * 64) { 0.1f }
+                        val dummyTextEmb = FloatArray(77 * 768) { 0.1f }
+                        val dummyUncond = FloatArray(77 * 768) { 0.05f }
 
-                    // Measure single step
-                    val step1Start = System.nanoTime()
-                    OnnxDiffusionEngine.denoiseLoop(
-                        unetSession = unetSession,
-                        latents = dummyLatents,
-                        textEmbeddings = dummyTextEmb,
-                        steps = 1,
-                        modelId = "sd15_qnn_npu",
-                        cfgScale = 7.5f,
-                        env = env,
-                        profile = profile,
-                        uncondEmbeddings = dummyUncond
-                    )
-                    val singleStepMs = (System.nanoTime() - step1Start) / 1_000_000.0
+                        // Measure single step
+                        val step1Start = System.nanoTime()
+                        OnnxDiffusionEngine.denoiseLoop(
+                            unetSession = unetSession,
+                            latents = dummyLatents,
+                            textEmbeddings = dummyTextEmb,
+                            steps = 1,
+                            modelId = "sd15_qnn_npu",
+                            cfgScale = 7.5f,
+                            env = env,
+                            profile = profile,
+                            uncondEmbeddings = dummyUncond
+                        )
+                        val singleStepMs = (System.nanoTime() - step1Start) / 1_000_000.0
 
-                    // Measure 20 steps
-                    val steps20Start = System.nanoTime()
-                    val finalLatents = OnnxDiffusionEngine.denoiseLoop(
-                        unetSession = unetSession,
-                        latents = dummyLatents,
-                        textEmbeddings = dummyTextEmb,
-                        steps = 20,
-                        modelId = "sd15_qnn_npu",
-                        cfgScale = 7.5f,
-                        env = env,
-                        profile = profile,
-                        uncondEmbeddings = dummyUncond
-                    )
-                    val steps20Ms = (System.nanoTime() - steps20Start) / 1_000_000.0
-                    unetSession.close()
+                        // Measure 20 steps
+                        val steps20Start = System.nanoTime()
+                        OnnxDiffusionEngine.denoiseLoop(
+                            unetSession = unetSession,
+                            latents = dummyLatents,
+                            textEmbeddings = dummyTextEmb,
+                            steps = 20,
+                            modelId = "sd15_qnn_npu",
+                            cfgScale = 7.5f,
+                            env = env,
+                            profile = profile,
+                            uncondEmbeddings = dummyUncond
+                        )
+                        val steps20Ms = (System.nanoTime() - steps20Start) / 1_000_000.0
 
-                    npuResults["unet"] = mapOf(
-                        "status" to "SUCCESS",
-                        "session_init_ms" to loadMs,
-                        "single_step_ms" to singleStepMs,
-                        "twenty_steps_total_ms" to steps20Ms,
-                        "avg_step_ms" to (steps20Ms / 20.0)
-                    )
+                        npuResults["unet"] = mapOf(
+                            "status" to "SUCCESS",
+                            "session_init_ms" to loadMs,
+                            "single_step_ms" to singleStepMs,
+                            "twenty_steps_total_ms" to steps20Ms,
+                            "avg_step_ms" to (steps20Ms / 20.0)
+                        )
+                    }
                 } catch (t: Throwable) {
                     npuResults["unet"] = mapOf("status" to "FAILED", "error" to (t.message ?: t.toString()))
                 }
@@ -115,21 +115,21 @@ object HardwareBenchmarker {
                 try {
                     val vaeFile = File(sd15Dir, "vae.onnx")
                     val loadStart = System.nanoTime()
-                    val vaeSession = htpBackend.createSession(env, vaeFile, profile)
-                    val loadMs = (System.nanoTime() - loadStart) / 1_000_000.0
+                    htpBackend.createSession(env, vaeFile, profile).use { vaeSession ->
+                        val loadMs = (System.nanoTime() - loadStart) / 1_000_000.0
 
-                    val dummyLatents = FloatArray(4 * 64 * 64) { 0.1f }
-                    val infStart = System.nanoTime()
-                    val rgbBytes = OnnxDiffusionEngine.decodeVae(vaeSession, dummyLatents, 512, 512, env, profile)
-                    val infMs = (System.nanoTime() - infStart) / 1_000_000.0
-                    vaeSession.close()
+                        val dummyLatents = FloatArray(4 * 64 * 64) { 0.1f }
+                        val infStart = System.nanoTime()
+                        val rgbBytes = OnnxDiffusionEngine.decodeVae(vaeSession, dummyLatents, 512, 512, env, profile)
+                        val infMs = (System.nanoTime() - infStart) / 1_000_000.0
 
-                    npuResults["vae_decoder"] = mapOf(
-                        "status" to "SUCCESS",
-                        "session_init_ms" to loadMs,
-                        "inference_ms" to infMs,
-                        "output_bytes" to rgbBytes.size
-                    )
+                        npuResults["vae_decoder"] = mapOf(
+                            "status" to "SUCCESS",
+                            "session_init_ms" to loadMs,
+                            "inference_ms" to infMs,
+                            "output_bytes" to rgbBytes.size
+                        )
+                    }
                 } catch (t: Throwable) {
                     npuResults["vae_decoder"] = mapOf("status" to "FAILED", "error" to (t.message ?: t.toString()))
                 }
@@ -152,21 +152,21 @@ object HardwareBenchmarker {
                 try {
                     val textEncFile = File(dreamDir, "text_encoder.onnx")
                     val loadStart = System.nanoTime()
-                    val textSession = cpuBackend.createSession(env, textEncFile, null)
-                    val loadMs = (System.nanoTime() - loadStart) / 1_000_000.0
+                    cpuBackend.createSession(env, textEncFile, null).use { textSession ->
+                        val loadMs = (System.nanoTime() - loadStart) / 1_000_000.0
 
-                    val tokens = IntArray(77) { 49406 }
-                    val infStart = System.nanoTime()
-                    val textEmb = OnnxDiffusionEngine.encodePrompt(textSession, tokens, env, null)
-                    val infMs = (System.nanoTime() - infStart) / 1_000_000.0
-                    textSession.close()
+                        val tokens = IntArray(77) { 49406 }
+                        val infStart = System.nanoTime()
+                        val textEmb = OnnxDiffusionEngine.encodePrompt(textSession, tokens, env, null)
+                        val infMs = (System.nanoTime() - infStart) / 1_000_000.0
 
-                    cpuResults["text_encoder"] = mapOf(
-                        "model" to "dreamshaper_v8_base",
-                        "status" to "SUCCESS",
-                        "session_init_ms" to loadMs,
-                        "inference_ms" to infMs
-                    )
+                        cpuResults["text_encoder"] = mapOf(
+                            "model" to "dreamshaper_v8_base",
+                            "status" to "SUCCESS",
+                            "session_init_ms" to loadMs,
+                            "inference_ms" to infMs
+                        )
+                    }
                 } catch (t: Throwable) {
                     cpuResults["text_encoder"] = mapOf("status" to "FAILED", "error" to (t.message ?: t.toString()))
                 }
@@ -175,22 +175,22 @@ object HardwareBenchmarker {
                 try {
                     val vaeFile = File(dreamDir, "vae_decoder.onnx")
                     val loadStart = System.nanoTime()
-                    val vaeSession = cpuBackend.createSession(env, vaeFile, null)
-                    val loadMs = (System.nanoTime() - loadStart) / 1_000_000.0
+                    cpuBackend.createSession(env, vaeFile, null).use { vaeSession ->
+                        val loadMs = (System.nanoTime() - loadStart) / 1_000_000.0
 
-                    val dummyLatents = FloatArray(4 * 64 * 64) { 0.1f }
-                    val infStart = System.nanoTime()
-                    val rgbBytes = OnnxDiffusionEngine.decodeVae(vaeSession, dummyLatents, 512, 512, env, null)
-                    val infMs = (System.nanoTime() - infStart) / 1_000_000.0
-                    vaeSession.close()
+                        val dummyLatents = FloatArray(4 * 64 * 64) { 0.1f }
+                        val infStart = System.nanoTime()
+                        val rgbBytes = OnnxDiffusionEngine.decodeVae(vaeSession, dummyLatents, 512, 512, env, null)
+                        val infMs = (System.nanoTime() - infStart) / 1_000_000.0
 
-                    cpuResults["vae_decoder"] = mapOf(
-                        "model" to "dreamshaper_v8_base",
-                        "status" to "SUCCESS",
-                        "session_init_ms" to loadMs,
-                        "inference_ms" to infMs,
-                        "output_bytes" to rgbBytes.size
-                    )
+                        cpuResults["vae_decoder"] = mapOf(
+                            "model" to "dreamshaper_v8_base",
+                            "status" to "SUCCESS",
+                            "session_init_ms" to loadMs,
+                            "inference_ms" to infMs,
+                            "output_bytes" to rgbBytes.size
+                        )
+                    }
                 } catch (t: Throwable) {
                     cpuResults["vae_decoder"] = mapOf("status" to "FAILED", "error" to (t.message ?: t.toString()))
                 }
@@ -199,31 +199,31 @@ object HardwareBenchmarker {
                 try {
                     val unetFile = File(dreamDir, "unet.onnx")
                     val loadStart = System.nanoTime()
-                    val unetSession = cpuBackend.createSession(env, unetFile, null)
-                    val loadMs = (System.nanoTime() - loadStart) / 1_000_000.0
+                    cpuBackend.createSession(env, unetFile, null).use { unetSession ->
+                        val loadMs = (System.nanoTime() - loadStart) / 1_000_000.0
 
-                    val dummyLatents = FloatArray(4 * 64 * 64) { 0.1f }
-                    val dummyTextEmb = FloatArray(77 * 768) { 0.1f }
+                        val dummyLatents = FloatArray(4 * 64 * 64) { 0.1f }
+                        val dummyTextEmb = FloatArray(77 * 768) { 0.1f }
 
-                    val stepStart = System.nanoTime()
-                    OnnxDiffusionEngine.denoiseLoop(
-                        unetSession = unetSession,
-                        latents = dummyLatents,
-                        textEmbeddings = dummyTextEmb,
-                        steps = 1,
-                        modelId = "dreamshaper_v8_base",
-                        cfgScale = 1.0f,
-                        env = env,
-                        profile = null
-                    )
-                    val stepMs = (System.nanoTime() - stepStart) / 1_000_000.0
-                    unetSession.close()
+                        val stepStart = System.nanoTime()
+                        OnnxDiffusionEngine.denoiseLoop(
+                            unetSession = unetSession,
+                            latents = dummyLatents,
+                            textEmbeddings = dummyTextEmb,
+                            steps = 1,
+                            modelId = "dreamshaper_v8_base",
+                            cfgScale = 1.0f,
+                            env = env,
+                            profile = null
+                        )
+                        val stepMs = (System.nanoTime() - stepStart) / 1_000_000.0
 
-                    cpuResults["unet_dreamshaper"] = mapOf(
-                        "status" to "SUCCESS",
-                        "session_init_ms" to loadMs,
-                        "single_step_ms" to stepMs
-                    )
+                        cpuResults["unet_dreamshaper"] = mapOf(
+                            "status" to "SUCCESS",
+                            "session_init_ms" to loadMs,
+                            "single_step_ms" to stepMs
+                        )
+                    }
                 } catch (t: Throwable) {
                     cpuResults["unet_dreamshaper"] = mapOf(
                         "status" to "FAILED",
@@ -236,9 +236,9 @@ object HardwareBenchmarker {
             if (sd15Dir.exists()) {
                 try {
                     val unetFile = File(sd15Dir, "unet.onnx")
-                    val unetSession = cpuBackend.createSession(env, unetFile, null)
-                    unetSession.close()
-                    cpuResults["unet_sd15_qnn"] = mapOf("status" to "SUCCESS")
+                    cpuBackend.createSession(env, unetFile, null).use { unetSession ->
+                        cpuResults["unet_sd15_qnn"] = mapOf("status" to "SUCCESS")
+                    }
                 } catch (t: Throwable) {
                     cpuResults["unet_sd15_qnn"] = mapOf(
                         "status" to "FAILED_AS_EXPECTED",
@@ -264,20 +264,20 @@ object HardwareBenchmarker {
                 try {
                     val textEncFile = File(dreamDir, "text_encoder.onnx")
                     val loadStart = System.nanoTime()
-                    val textSession = gpuBackend.createSession(env, textEncFile, null)
-                    val loadMs = (System.nanoTime() - loadStart) / 1_000_000.0
+                    gpuBackend.createSession(env, textEncFile, null).use { textSession ->
+                        val loadMs = (System.nanoTime() - loadStart) / 1_000_000.0
 
-                    val tokens = IntArray(77) { 49406 }
-                    val infStart = System.nanoTime()
-                    val textEmb = OnnxDiffusionEngine.encodePrompt(textSession, tokens, env, null)
-                    val infMs = (System.nanoTime() - infStart) / 1_000_000.0
-                    textSession.close()
+                        val tokens = IntArray(77) { 49406 }
+                        val infStart = System.nanoTime()
+                        val textEmb = OnnxDiffusionEngine.encodePrompt(textSession, tokens, env, null)
+                        val infMs = (System.nanoTime() - infStart) / 1_000_000.0
 
-                    gpuResults["text_encoder"] = mapOf(
-                        "status" to "SUCCESS",
-                        "session_init_ms" to loadMs,
-                        "inference_ms" to infMs
-                    )
+                        gpuResults["text_encoder"] = mapOf(
+                            "status" to "SUCCESS",
+                            "session_init_ms" to loadMs,
+                            "inference_ms" to infMs
+                        )
+                    }
                 } catch (t: Throwable) {
                     gpuResults["text_encoder"] = mapOf("status" to "FAILED", "error" to (t.message ?: t.toString()))
                 }
@@ -286,21 +286,21 @@ object HardwareBenchmarker {
                 try {
                     val vaeFile = File(dreamDir, "vae_decoder.onnx")
                     val loadStart = System.nanoTime()
-                    val vaeSession = gpuBackend.createSession(env, vaeFile, null)
-                    val loadMs = (System.nanoTime() - loadStart) / 1_000_000.0
+                    gpuBackend.createSession(env, vaeFile, null).use { vaeSession ->
+                        val loadMs = (System.nanoTime() - loadStart) / 1_000_000.0
 
-                    val dummyLatents = FloatArray(4 * 64 * 64) { 0.1f }
-                    val infStart = System.nanoTime()
-                    val rgbBytes = OnnxDiffusionEngine.decodeVae(vaeSession, dummyLatents, 512, 512, env, null)
-                    val infMs = (System.nanoTime() - infStart) / 1_000_000.0
-                    vaeSession.close()
+                        val dummyLatents = FloatArray(4 * 64 * 64) { 0.1f }
+                        val infStart = System.nanoTime()
+                        val rgbBytes = OnnxDiffusionEngine.decodeVae(vaeSession, dummyLatents, 512, 512, env, null)
+                        val infMs = (System.nanoTime() - infStart) / 1_000_000.0
 
-                    gpuResults["vae_decoder"] = mapOf(
-                        "status" to "SUCCESS",
-                        "session_init_ms" to loadMs,
-                        "inference_ms" to infMs,
-                        "output_bytes" to rgbBytes.size
-                    )
+                        gpuResults["vae_decoder"] = mapOf(
+                            "status" to "SUCCESS",
+                            "session_init_ms" to loadMs,
+                            "inference_ms" to infMs,
+                            "output_bytes" to rgbBytes.size
+                        )
+                    }
                 } catch (t: Throwable) {
                     gpuResults["vae_decoder"] = mapOf("status" to "FAILED", "error" to (t.message ?: t.toString()))
                 }
@@ -309,10 +309,10 @@ object HardwareBenchmarker {
                 try {
                     val unetFile = File(dreamDir, "unet.onnx")
                     val loadStart = System.nanoTime()
-                    val unetSession = gpuBackend.createSession(env, unetFile, null)
-                    val loadMs = (System.nanoTime() - loadStart) / 1_000_000.0
-                    unetSession.close()
-                    gpuResults["unet"] = mapOf("status" to "SUCCESS", "session_init_ms" to loadMs)
+                    gpuBackend.createSession(env, unetFile, null).use { unetSession ->
+                        val loadMs = (System.nanoTime() - loadStart) / 1_000_000.0
+                        gpuResults["unet"] = mapOf("status" to "SUCCESS", "session_init_ms" to loadMs)
+                    }
                 } catch (t: Throwable) {
                     gpuResults["unet"] = mapOf("status" to "FAILED", "error" to (t.message ?: t.toString()))
                 }
@@ -322,9 +322,9 @@ object HardwareBenchmarker {
             if (sd15Dir.exists()) {
                 try {
                     val unetFile = File(sd15Dir, "unet.onnx")
-                    val unetSession = gpuBackend.createSession(env, unetFile, null)
-                    unetSession.close()
-                    gpuResults["unet_sd15_qnn"] = mapOf("status" to "SUCCESS")
+                    gpuBackend.createSession(env, unetFile, null).use { unetSession ->
+                        gpuResults["unet_sd15_qnn"] = mapOf("status" to "SUCCESS")
+                    }
                 } catch (t: Throwable) {
                     gpuResults["unet_sd15_qnn"] = mapOf(
                         "status" to "FAILED_AS_EXPECTED",
