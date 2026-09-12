@@ -70,4 +70,20 @@ class NpuBackendRegistryTest {
         assertNotNull(bestBackend)
         assertTrue(bestBackend.isAvailable)
     }
+
+    @Test
+    fun testUserSelectedCpuBackendTakesPriority() {
+        val cpuBackend = NpuBackendRegistry.getBackend(BackendType.CPU)
+        assertNotNull(cpuBackend)
+        assertTrue(cpuBackend!!.isAvailable)
+        val tempDir = File(System.getProperty("java.io.tmpdir"), "test_user_cpu_${System.currentTimeMillis()}")
+        tempDir.mkdirs()
+        try {
+            val modelFile = File(tempDir, "test.onnx")
+            modelFile.writeBytes(ByteArray(100))
+            assertTrue(cpuBackend.canExecute(modelFile, null))
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
 }

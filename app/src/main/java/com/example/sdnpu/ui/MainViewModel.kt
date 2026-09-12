@@ -304,8 +304,10 @@ class MainViewModel(
 
         generationJob = viewModelScope.launch {
             val prompt = _params.value.prompt
-            pipelineManager.runGeneration(_params.value).collect { state ->
-                android.util.Log.i("MainViewModel", "pipelineState updated: $state")
+            val backendPref = appSettings.value.backendPreference
+            val effectiveParams = _params.value.copy(preferredBackend = backendPref)
+            pipelineManager.runGeneration(effectiveParams).collect { state ->
+                android.util.Log.i("MainViewModel", "pipelineState updated: $state (backend=$backendPref)")
                 _pipelineState.value = state
                 when (state) {
                     is PipelineState.Generating -> {

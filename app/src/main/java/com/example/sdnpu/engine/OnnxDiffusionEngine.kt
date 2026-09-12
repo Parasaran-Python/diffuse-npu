@@ -838,13 +838,18 @@ object OnnxDiffusionEngine {
         }
 
         val profile = ModelExecutionProfile.fromModelDirectory(modelDir, params.modelId)
+        val preferredBackendType = when (params.preferredBackend?.uppercase()) {
+            "CPU" -> BackendType.CPU
+            "GPU" -> BackendType.GPU
+            else -> null
+        }
 
         val env = OrtEnvironment.getEnvironment()
         val promptTokens = tokenizer.tokenize(params.prompt)
         val seed = params.seed ?: System.currentTimeMillis()
 
         // 1. Text Encoder Session
-        val textEmbeddings = createSession(env, textEncoderFile, profile).use { textEncoderSession ->
+        val textEmbeddings = createSession(env, textEncoderFile, profile, preferredBackendType).use { textEncoderSession ->
             encodePrompt(textEncoderSession, promptTokens, env, profile)
         }
         System.gc()
@@ -862,7 +867,7 @@ object OnnxDiffusionEngine {
         }
 
         // 3. UNet Session
-        val denoisedLatents = createSession(env, unetFile, profile).use { unetSession ->
+        val denoisedLatents = createSession(env, unetFile, profile, preferredBackendType).use { unetSession ->
             denoiseLoop(
                 unetSession = unetSession,
                 latents = initialLatents,
@@ -881,7 +886,7 @@ object OnnxDiffusionEngine {
         if (isCancelled) throw CancellationException("Generation cancelled")
 
         // 4. VAE Decoder Session
-        return createSession(env, vaeDecoderFile, profile).use { vaeSession ->
+        return createSession(env, vaeDecoderFile, profile, preferredBackendType).use { vaeSession ->
             decodeVae(vaeSession, denoisedLatents, 512, 512, env, profile)
         }
     }
