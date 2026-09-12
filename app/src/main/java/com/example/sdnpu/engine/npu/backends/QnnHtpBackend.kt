@@ -40,16 +40,23 @@ class QnnHtpBackend(
         if (!modelFile.exists() || modelFile.length() == 0L) return false
 
         val contextOnnxFile = File(modelFile.parentFile, "${modelFile.nameWithoutExtension}_ctx.onnx")
-        val qairtContextBin = File(modelFile.parentFile, "${modelFile.nameWithoutExtension}_qairt_context.bin")
-        val hasPrecompiledContext = (contextOnnxFile.exists() && contextOnnxFile.length() > 0) ||
-                (qairtContextBin.exists() && qairtContextBin.length() > 0) ||
-                (profile?.isPrecompiledContext == true)
+        val hasContextOnnx = contextOnnxFile.exists() && contextOnnxFile.length() > 0
+        val isExplicitContextBin = modelFile.extension.equals("bin", ignoreCase = true)
 
-        // Raw unquantized models >1GB cannot be JIT-compiled on-device without triggering LMKD OOM
-        val isUnquantizedLargeUnet = !hasPrecompiledContext && modelFile.name == "unet.onnx" && modelFile.length() > 1_000_000_000L
-        val isUnoptimizedFloatVae = !hasPrecompiledContext && (modelFile.name == "vae_decoder.onnx" || modelFile.name == "vae.onnx") && modelFile.length() > 80_000_000L
+        // Raw unquantized models >1GB cannot be JIT-compiled on-device without triggering LMKD OOM.
+        // A model is only safe from JIT OOM if it has a precompiled ONNX context, is a standalone context .bin,
+        // or its ONNX file size is small (<100MB, e.g. Qualcomm AI Hub external context wrapper).
+        val isLargeUnet = modelFile.name == "unet.onnx" && modelFile.length() > 1_000_000_000L
+        if (isLargeUnet && !hasContextOnnx && !isExplicitContextBin) {
+            return false
+        }
 
-        return !isUnquantizedLargeUnet && !isUnoptimizedFloatVae
+        val isLargeFloatVae = (modelFile.name == "vae_decoder.onnx" || modelFile.name == "vae.onnx") && modelFile.length() > 80_000_000L
+        if (isLargeFloatVae && !hasContextOnnx && !isExplicitContextBin) {
+            return false
+        }
+
+        return true
     }
 
     override fun createSessionOptions(
@@ -58,7 +65,12 @@ class QnnHtpBackend(
     ): OrtSession.SessionOptions {
         val options = OrtSession.SessionOptions()
         options.setIntraOpNumThreads(4)
-        options.addConfigEntry("session.load_model_format", "ONNX")
+        val isContextBin = modelFile.extension.equals("bin", ignoreCase = true)
+        if (isContextBin) {
+            options.addConfigEntry("session.load_model_format", "QNN_EP_CONTEXT_BINARY")
+        } else {
+            options.addConfigEntry("session.load_model_format", "ONNX")
+        }
         options.addConfigEntry("session.disable_prepacking", "1")
 
         val qnnProviderOptions = mapOf(
@@ -78,7 +90,14 @@ class QnnHtpBackend(
         profile: ModelExecutionProfile?
     ): OrtSession {
         val contextOnnxFile = File(modelFile.parentFile, "${modelFile.nameWithoutExtension}_ctx.onnx")
-        val effectiveModel = if (contextOnnxFile.exists() && contextOnnxFile.length() > 0) contextOnnxFile else modelFile
+        val standaloneBin = File(modelFile.parentFile, "${modelFile.nameWithoutExtension}.bin")
+
+        val effectiveModel = when {
+            contextOnnxFile.exists() && contextOnnxFile.length() > 0 -> contextOnnxFile
+            modelFile.extension.equals("bin", ignoreCase = true) -> modelFile
+            standaloneBin.exists() && standaloneBin.length() > 0 && modelFile.length() > 100_000_000L -> standaloneBin
+            else -> modelFile
+        }
 
         return createSessionOptions(effectiveModel, profile).use { opts ->
             Log.i(TAG, "Creating QNN HTP NPU session for ${effectiveModel.name}")

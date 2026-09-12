@@ -156,30 +156,39 @@ class ModelManager(
                     }
                 }
 
-                // Extract zip safely to prevent Zip Slip vulnerabilities (CWE-022)
-                emit(DownloadStatus.DownloadingComponent("Extracting NPU models...", 100L, 100L, 100))
-                val canonicalModelDir = modelDir.canonicalFile
-                java.util.zip.ZipInputStream(zipPartFile.inputStream().buffered()).use { zis ->
-                    var entry = zis.nextEntry
-                    while (entry != null) {
-                        val cleanName = File(entry.name).name
-                        if (!entry.isDirectory && cleanName.isNotEmpty() && cleanName != ".." && cleanName != ".") {
-                            val outFile = File(modelDir, cleanName)
+                try {
+                    // Extract zip safely to prevent Zip Slip vulnerabilities (CWE-022) while preserving directory structure
+                    emit(DownloadStatus.DownloadingComponent("Extracting NPU models...", 100L, 100L, 100))
+                    val canonicalModelDir = modelDir.canonicalFile
+                    java.util.zip.ZipInputStream(zipPartFile.inputStream().buffered()).use { zis ->
+                        var entry = zis.nextEntry
+                        while (entry != null) {
+                            val entryName = entry.name.replace('\\', '/')
+                            val outFile = File(modelDir, entryName)
                             val canonicalOutFile = outFile.canonicalFile
-                            if (!canonicalOutFile.path.startsWith(canonicalModelDir.path + File.separator)) {
+                            if (!canonicalOutFile.path.startsWith(canonicalModelDir.path + File.separator) && canonicalOutFile != canonicalModelDir) {
                                 throw SecurityException("Zip entry traverses outside destination directory (Zip Slip): ${entry.name}")
                             }
-                            FileOutputStream(outFile).buffered().use { fos ->
-                                zis.copyTo(fos)
+                            if (entry.isDirectory) {
+                                canonicalOutFile.mkdirs()
+                            } else {
+                                canonicalOutFile.parentFile?.mkdirs()
+                                FileOutputStream(canonicalOutFile).buffered().use { fos ->
+                                    zis.copyTo(fos)
+                                }
                             }
+                            entry = zis.nextEntry
                         }
-                        entry = zis.nextEntry
                     }
+                    zipPartFile.delete()
+                    completeFile.createNewFile()
+                    emit(DownloadStatus.Completed(manifest.modelId, modelDir.absolutePath))
+                    return@flow
+                } catch (t: Throwable) {
+                    cleanupIfIncomplete()
+                    emit(DownloadStatus.Failed("Archive extraction failed: ${t.message}"))
+                    return@flow
                 }
-                zipPartFile.delete()
-                completeFile.createNewFile()
-                emit(DownloadStatus.Completed(manifest.modelId, modelDir.absolutePath))
-                return@flow
             }
 
             for (comp in manifest.components) {

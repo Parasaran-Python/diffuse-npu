@@ -706,10 +706,45 @@ class ModelManagerTest {
 
         val zipUrl = server.url("/slip.zip").toString()
         val statuses = modelManager.downloadModel(manifest, zipUrl).toList()
-        assertTrue(statuses.any { it is DownloadStatus.Completed })
+        assertTrue(statuses.any { it is DownloadStatus.Failed })
+        val failedStatus = statuses.filterIsInstance<DownloadStatus.Failed>().first()
+        assertTrue(failedStatus.reason.contains("Zip Slip"))
         val evilFile = File(modelsDir.parentFile, "evil.sh")
         assertFalse(evilFile.exists())
-        val safeFile = File(File(modelsDir, "zip_slip_model"), "evil.sh")
-        assertTrue(safeFile.exists())
+    }
+
+    @Test
+    fun testZipBundlePreservesNestedDirectoryStructure() = runBlocking {
+        val zipBytes = java.io.ByteArrayOutputStream().use { baos ->
+            java.util.zip.ZipOutputStream(baos).use { zos ->
+                zos.putNextEntry(java.util.zip.ZipEntry("unet/model.onnx"))
+                zos.write("unet_weights".toByteArray())
+                zos.closeEntry()
+                zos.putNextEntry(java.util.zip.ZipEntry("vae/model.onnx"))
+                zos.write("vae_weights".toByteArray())
+                zos.closeEntry()
+            }
+            baos.toByteArray()
+        }
+
+        server.enqueue(MockResponse().setResponseCode(200).setBody(okio.Buffer().write(zipBytes)))
+
+        val manifest = ModelManifest(
+            modelId = "nested_zip_model",
+            version = "1.0",
+            components = emptyList(),
+            qnnSdkVersion = "2.49.0",
+            targetHtp = "v73"
+        )
+
+        val zipUrl = server.url("/nested.zip").toString()
+        val statuses = modelManager.downloadModel(manifest, zipUrl).toList()
+        assertTrue(statuses.any { it is DownloadStatus.Completed })
+        val unetFile = File(File(modelsDir, "nested_zip_model/unet"), "model.onnx")
+        val vaeFile = File(File(modelsDir, "nested_zip_model/vae"), "model.onnx")
+        assertTrue(unetFile.exists())
+        assertTrue(vaeFile.exists())
+        assertEquals("unet_weights", unetFile.readText())
+        assertEquals("vae_weights", vaeFile.readText())
     }
 }
