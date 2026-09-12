@@ -301,6 +301,31 @@ object OnnxDiffusionEngine {
         return bytes
     }
 
+    fun nhwcFloatRgbToArgbBytes(rgbFloats: FloatArray, width: Int = 512, height: Int = 512): ByteArray {
+        val pixelCount = minOf(width * height, rgbFloats.size / 3)
+        val bytes = ByteArray(pixelCount * 4)
+        var hasNegative = false
+        val checkCount = minOf(rgbFloats.size, 500)
+        for (i in 0 until checkCount) {
+            if (rgbFloats[i] < -0.01f) {
+                hasNegative = true
+                break
+            }
+        }
+        for (i in 0 until pixelCount) {
+            val fIdx = i * 3
+            val r = clampPixel(rgbFloats[fIdx], hasNegative)
+            val g = clampPixel(rgbFloats[fIdx + 1], hasNegative)
+            val b = clampPixel(rgbFloats[fIdx + 2], hasNegative)
+            val outIdx = i * 4
+            bytes[outIdx] = r
+            bytes[outIdx + 1] = g
+            bytes[outIdx + 2] = b
+            bytes[outIdx + 3] = 255.toByte()
+        }
+        return bytes
+    }
+
     @Volatile
     var nativeLibraryDir: String? = null
 
@@ -388,14 +413,23 @@ object OnnxDiffusionEngine {
         val gOffset = pixelCount
         val bOffset = 2 * pixelCount
 
+        var hasNegative = false
+        val checkCount = minOf(rgbFloats.size, 500)
+        for (i in 0 until checkCount) {
+            if (rgbFloats[i] < -0.01f) {
+                hasNegative = true
+                break
+            }
+        }
+
         for (i in 0 until pixelCount) {
             val rVal = if (rOffset + i < rgbFloats.size) rgbFloats[rOffset + i] else 0f
             val gVal = if (gOffset + i < rgbFloats.size) rgbFloats[gOffset + i] else 0f
             val bVal = if (bOffset + i < rgbFloats.size) rgbFloats[bOffset + i] else 0f
 
-            val r = clampPixel(rVal)
-            val g = clampPixel(gVal)
-            val b = clampPixel(bVal)
+            val r = clampPixel(rVal, hasNegative)
+            val g = clampPixel(gVal, hasNegative)
+            val b = clampPixel(bVal, hasNegative)
 
             val outIdx = i * 4
             bytes[outIdx] = r
@@ -406,8 +440,12 @@ object OnnxDiffusionEngine {
         return bytes
     }
 
-    private fun clampPixel(v: Float): Byte {
-        val scaled = (v + 1.0f) * 127.5f
+    private fun clampPixel(v: Float, isRangeNegOneToOne: Boolean = true): Byte {
+        val scaled = if (isRangeNegOneToOne) {
+            (v + 1.0f) * 127.5f
+        } else {
+            v * 255.0f
+        }
         if (scaled.isNaN() || scaled <= 0f) return 0
         if (scaled >= 255f) return 255.toByte()
         return scaled.toInt().toByte()
@@ -507,7 +545,9 @@ object OnnxDiffusionEngine {
             cfgScale = 1.0f,
             seed = null,
             onStep = onStep,
-            env = env
+            env = env,
+            profile = null,
+            uncondEmbeddings = null
         )
     }
 
@@ -521,14 +561,21 @@ object OnnxDiffusionEngine {
         seed: Long? = null,
         onStep: ((Int, Int) -> Unit)? = null,
         env: OrtEnvironment = OrtEnvironment.getEnvironment(),
-        profile: ModelExecutionProfile? = null
+        profile: ModelExecutionProfile? = null,
+        uncondEmbeddings: FloatArray? = null
     ): FloatArray {
         val isQuantizedNpu = profile?.precision == ModelPrecision.UINT16 ||
                 modelId == "sd15_qnn_npu" ||
                 unetSession.inputNames.contains("text_emb")
         val isLcm = !isQuantizedNpu && (isLcmModel(modelId) || unetSession.inputNames.contains("timestep_cond"))
         val lcmSchedule = if (isLcm) LcmScheduler.getSchedule(steps) else null
-        val sdSchedule = if (!isLcm) SdTurboScheduler.getSchedule(steps) else null
+        val sdSchedule: DiffusionSchedule? = if (!isLcm) {
+            if (modelId == "sd15_qnn_npu" || isQuantizedNpu) {
+                EulerDiscreteScheduler.getSchedule(steps)
+            } else {
+                SdTurboScheduler.getSchedule(steps)
+            }
+        } else null
         val numSteps = if (isLcm) lcmSchedule!!.timesteps.size else sdSchedule!!.timesteps.size
 
         val currentLatents = latents.clone()
@@ -538,6 +585,11 @@ object OnnxDiffusionEngine {
             val textEmbQuant = profile?.unetTextEmbQuant ?: QuantParams(QNN_UNET_TEXT_EMB_SCALE, QNN_UNET_TEXT_EMB_ZP)
             val textEmbShorts = quantizeFloatToUint16(textEmbeddings, textEmbQuant.scale, textEmbQuant.zeroPoint)
             val textEmbTensor = createUint16Tensor(env, textEmbShorts, longArrayOf(1, 77, 768))
+
+            val uncondTensor = if (uncondEmbeddings != null && cfgScale > 1.0f) {
+                val uncondShorts = quantizeFloatToUint16(uncondEmbeddings, textEmbQuant.scale, textEmbQuant.zeroPoint)
+                createUint16Tensor(env, uncondShorts, longArrayOf(1, 77, 768))
+            } else null
 
             val latentName = unetSession.inputNames.firstOrNull { it == "latent" } ?: "latent"
             val timeName = unetSession.inputNames.firstOrNull { it == "timestep" } ?: "timestep"
@@ -567,21 +619,39 @@ object OnnxDiffusionEngine {
                         val timeTensor = createUint16Tensor(env, shortArrayOf(timeShort), longArrayOf(1, 1))
 
                         timeTensor.use { tTensor ->
-                            val inputs = mapOf(
+                            val condInputs = mapOf(
                                 latentName to lTensor,
                                 timeName to tTensor,
                                 textEmbName to textEmbTensor
                             )
-                            val result = unetSession.run(inputs)
-                            result.use { res ->
+                            val noiseCond = unetSession.run(condInputs).use { res ->
                                 val outTensor = (res.get(0) as? OnnxTensor) ?: (res.iterator().next().value as OnnxTensor)
                                 val outShorts = extractShortsFromTensor(outTensor)
                                 val dequantLatents = dequantizeUint16ToFloat(outShorts, outLatentQuant.scale, outLatentQuant.zeroPoint)
-                                val noisePred = if (isNhwc) nhwcToNchw(dequantLatents, 4, 64, 64) else dequantLatents
-
-                                sdSchedule.step(currentLatents, noisePred, stepIndex, tempLatents)
-                                System.arraycopy(tempLatents, 0, currentLatents, 0, currentLatents.size)
+                                if (isNhwc) nhwcToNchw(dequantLatents, 4, 64, 64) else dequantLatents
                             }
+
+                            val noisePred = if (uncondTensor != null && cfgScale > 1.0f) {
+                                val uncondInputs = mapOf(
+                                    latentName to lTensor,
+                                    timeName to tTensor,
+                                    textEmbName to uncondTensor
+                                )
+                                val noiseUncond = unetSession.run(uncondInputs).use { res ->
+                                    val outTensor = (res.get(0) as? OnnxTensor) ?: (res.iterator().next().value as OnnxTensor)
+                                    val outShorts = extractShortsFromTensor(outTensor)
+                                    val dequantLatents = dequantizeUint16ToFloat(outShorts, outLatentQuant.scale, outLatentQuant.zeroPoint)
+                                    if (isNhwc) nhwcToNchw(dequantLatents, 4, 64, 64) else dequantLatents
+                                }
+                                FloatArray(noiseCond.size) { i ->
+                                    noiseUncond[i] + cfgScale * (noiseCond[i] - noiseUncond[i])
+                                }
+                            } else {
+                                noiseCond
+                            }
+
+                            sdSchedule.step(currentLatents, noisePred, stepIndex, tempLatents)
+                            System.arraycopy(tempLatents, 0, currentLatents, 0, currentLatents.size)
                         }
                     }
 
@@ -589,6 +659,7 @@ object OnnxDiffusionEngine {
                 }
             } finally {
                 textEmbTensor.close()
+                uncondTensor?.close()
             }
 
             return currentLatents
@@ -604,6 +675,15 @@ object OnnxDiffusionEngine {
             textEmbeddings,
             longArrayOf(1, 77, textEmbeddings.size / 77L)
         )
+
+        val uncondHiddenTensor = if (uncondEmbeddings != null && cfgScale > 1.0f && !isLcm) {
+            createFloatTensor(
+                env,
+                hiddenInfo?.type,
+                uncondEmbeddings,
+                longArrayOf(1, 77, uncondEmbeddings.size / 77L)
+            )
+        } else null
 
         val condName = if (unetSession.inputNames.contains("timestep_cond")) {
             "timestep_cond"
@@ -621,6 +701,7 @@ object OnnxDiffusionEngine {
             }
         } catch (e: Throwable) {
             hiddenTensor.close()
+            uncondHiddenTensor?.close()
             throw e
         }
 
@@ -686,37 +767,58 @@ object OnnxDiffusionEngine {
                     }
 
                     timestepTensor.use { timestep ->
-                        val inputs = mutableMapOf<String, OnnxTensor>(
+                        val condInputs = mutableMapOf<String, OnnxTensor>(
                             sampleName to sample,
                             timestepName to timestep,
                             hiddenName to hiddenTensor
                         )
                         if (condName != null && condTensor != null) {
-                            inputs[condName] = condTensor
+                            condInputs[condName] = condTensor
                         }
 
-                        val result = unetSession.run(inputs)
-                        result.use { res ->
+                        val noiseCond = unetSession.run(condInputs).use { res ->
                             val noisePredTensor = (res.get(0) as? OnnxTensor) ?: (res.iterator().next().value as OnnxTensor)
                             val rawNoisePred = extractFloatsFromTensor(noisePredTensor)
-                            val noisePred = if (isNhwc && noisePredTensor.info.shape.lastOrNull() == 4L) {
+                            if (isNhwc && noisePredTensor.info.shape.lastOrNull() == 4L) {
                                 nhwcToNchw(rawNoisePred, 4, 64, 64)
                             } else {
                                 rawNoisePred
                             }
-
-                            if (isLcm) {
-                                val stepNoise = if (stepIndex < numSteps - 1) {
-                                    GaussianNoise.generate(currentLatents.size, seed?.let { it + stepIndex + 1 })
-                                } else {
-                                    null
-                                }
-                                LcmScheduler.step(currentLatents, noisePred, stepIndex, lcmSchedule!!, stepNoise, tempLatents)
-                            } else {
-                                sdSchedule!!.step(currentLatents, noisePred, stepIndex, tempLatents)
-                            }
-                            System.arraycopy(tempLatents, 0, currentLatents, 0, currentLatents.size)
                         }
+
+                        val noisePred = if (uncondHiddenTensor != null && cfgScale > 1.0f && !isLcm) {
+                            val uncondInputs = mutableMapOf<String, OnnxTensor>(
+                                sampleName to sample,
+                                timestepName to timestep,
+                                hiddenName to uncondHiddenTensor
+                            )
+                            val noiseUncond = unetSession.run(uncondInputs).use { res ->
+                                val noisePredTensor = (res.get(0) as? OnnxTensor) ?: (res.iterator().next().value as OnnxTensor)
+                                val rawNoisePred = extractFloatsFromTensor(noisePredTensor)
+                                if (isNhwc && noisePredTensor.info.shape.lastOrNull() == 4L) {
+                                    nhwcToNchw(rawNoisePred, 4, 64, 64)
+                                } else {
+                                    rawNoisePred
+                                }
+                            }
+                            FloatArray(noiseCond.size) { i ->
+                                noiseUncond[i] + cfgScale * (noiseCond[i] - noiseUncond[i])
+                            }
+                        } else {
+                            noiseCond
+                        }
+
+                        if (isLcm) {
+                            val stepNoise = if (stepIndex < numSteps - 1) {
+                                GaussianNoise.generate(currentLatents.size, seed?.let { it + stepIndex + 1 })
+                            } else {
+                                null
+                            }
+                            LcmScheduler.step(currentLatents, noisePred, stepIndex, lcmSchedule!!, stepNoise, tempLatents)
+                        } else {
+                            sdSchedule!!.step(currentLatents, noisePred, stepIndex, tempLatents)
+                        }
+                        System.arraycopy(tempLatents, 0, currentLatents, 0, currentLatents.size)
                     }
                 }
 
@@ -724,6 +826,7 @@ object OnnxDiffusionEngine {
             }
         } finally {
             hiddenTensor.close()
+            uncondHiddenTensor?.close()
             condTensor?.close()
         }
 
@@ -738,10 +841,6 @@ object OnnxDiffusionEngine {
         env: OrtEnvironment = OrtEnvironment.getEnvironment(),
         profile: ModelExecutionProfile? = null
     ): ByteArray {
-        val scaledLatents = FloatArray(latents.size) { i ->
-            latents[i] / VAE_SCALE_FACTOR
-        }
-
         val inputName = vaeSession.inputNames.firstOrNull {
             it.contains("latent") || it.contains("sample")
         } ?: vaeSession.inputNames.iterator().next()
@@ -751,6 +850,16 @@ object OnnxDiffusionEngine {
                 (latentInfo?.shape?.contentEquals(longArrayOf(1, 64, 64, 4)) == true) ||
                 (latentInfo?.type == OnnxJavaType.INT16) ||
                 (vaeSession.outputNames.contains("image") && vaeSession.inputNames.contains("latent"))
+
+        // Qualcomm AI Hub precompiled VAE and quantized VAE embed `z / scaling_factor` directly in the graph.
+        // Standard diffusers FP32 VAE requires dividing by VAE_SCALE_FACTOR (0.18215).
+        val scaledLatents = if (isQuantizedVae || profile?.isPrecompiledContext == true || profile?.modelId == "sd15_qnn_npu") {
+            latents
+        } else {
+            FloatArray(latents.size) { i ->
+                latents[i] / VAE_SCALE_FACTOR
+            }
+        }
 
         if (isQuantizedVae) {
             val isNhwc = profile?.layout == TensorLayout.NHWC || (latentInfo?.shape?.contentEquals(longArrayOf(1, 64, 64, 4)) == true)
@@ -764,11 +873,16 @@ object OnnxDiffusionEngine {
                 val result = vaeSession.run(mapOf(inputName to tensor))
                 result.use { res ->
                     val outTensor = (res.get(0) as? OnnxTensor) ?: (res.iterator().next().value as OnnxTensor)
-                    if (outTensor.info.type == OnnxJavaType.INT16 ||
-                        outTensor.info.onnxType == TensorInfo.OnnxTensorType.ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT16 ||
-                        outTensor.info.shape.lastOrNull() == 3L) {
+                    val isNhwcOut = outTensor.info.shape.lastOrNull() == 3L
+                    val isUint16Out = outTensor.info.type == OnnxJavaType.INT16 ||
+                            outTensor.info.onnxType == TensorInfo.OnnxTensorType.ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT16
+
+                    if (isUint16Out) {
                         val outShorts = extractShortsFromTensor(outTensor)
                         nhwcUint16RgbToArgbBytes(outShorts, width, height)
+                    } else if (isNhwcOut) {
+                        val rgbFloats = extractFloatsFromTensor(outTensor)
+                        nhwcFloatRgbToArgbBytes(rgbFloats, width, height)
                     } else {
                         val rgbFloats = extractFloatsFromTensor(outTensor)
                         planarRgbToArgbBytes(rgbFloats, width, height)
@@ -787,15 +901,20 @@ object OnnxDiffusionEngine {
             latentShape
         )
 
-        val rgbFloats = latentTensor.use { tensor ->
+        val (rgbFloats, isNhwcOut) = latentTensor.use { tensor ->
             val result = vaeSession.run(mapOf(inputName to tensor))
             result.use { res ->
                 val outTensor = (res.get(0) as? OnnxTensor) ?: (res.iterator().next().value as OnnxTensor)
-                extractFloatsFromTensor(outTensor)
+                val isNhwc = outTensor.info.shape.lastOrNull() == 3L
+                Pair(extractFloatsFromTensor(outTensor), isNhwc)
             }
         }
 
-        return planarRgbToArgbBytes(rgbFloats, width, height)
+        return if (isNhwcOut) {
+            nhwcFloatRgbToArgbBytes(rgbFloats, width, height)
+        } else {
+            planarRgbToArgbBytes(rgbFloats, width, height)
+        }
     }
 
     fun resolveComponentFile(modelDir: File, componentName: String): File {
@@ -845,24 +964,37 @@ object OnnxDiffusionEngine {
         }
 
         val env = OrtEnvironment.getEnvironment()
+        val isLcm = isLcmModel(params.modelId)
+        val isSd15 = params.modelId == "sd15_qnn_npu" || profile?.precision == ModelPrecision.UINT16
+        val doCfg = params.cfgScale > 1.0f && !isLcm
         val promptTokens = tokenizer.tokenize(params.prompt)
+        val uncondTokens = if (doCfg) tokenizer.tokenize(params.negativePrompt ?: "") else null
         val seed = params.seed ?: System.currentTimeMillis()
 
         // 1. Text Encoder Session
-        val textEmbeddings = createSession(env, textEncoderFile, profile, preferredBackendType).use { textEncoderSession ->
-            encodePrompt(textEncoderSession, promptTokens, env, profile)
+        val (textEmbeddings, uncondEmbeddings) = createSession(env, textEncoderFile, profile, preferredBackendType).use { textEncoderSession ->
+            val cond = encodePrompt(textEncoderSession, promptTokens, env, profile)
+            val uncond = if (uncondTokens != null) {
+                encodePrompt(textEncoderSession, uncondTokens, env, profile)
+            } else {
+                null
+            }
+            Pair(cond, uncond)
         }
         System.gc()
 
         if (isCancelled) throw CancellationException("Generation cancelled")
 
         // 2. Initial Latents
-        val isLcm = isLcmModel(params.modelId)
         val rawNoise = GaussianNoise.generate(4 * 64 * 64, seed)
         val initialLatents = if (isLcm) {
             rawNoise
         } else {
-            val schedule = SdTurboScheduler.getSchedule(params.steps)
+            val schedule: DiffusionSchedule = if (isSd15) {
+                EulerDiscreteScheduler.getSchedule(params.steps)
+            } else {
+                SdTurboScheduler.getSchedule(params.steps)
+            }
             FloatArray(rawNoise.size) { i -> rawNoise[i] * schedule.initNoiseSigma }
         }
 
@@ -878,7 +1010,8 @@ object OnnxDiffusionEngine {
                 seed = seed,
                 onStep = onStep,
                 env = env,
-                profile = profile
+                profile = profile,
+                uncondEmbeddings = uncondEmbeddings
             )
         }
         System.gc()

@@ -171,12 +171,27 @@ class MainActivity : ComponentActivity() {
     private fun handleAutoGenerate(intent: android.content.Intent?) {
         if (intent?.getBooleanExtra("auto_generate", false) == true) {
             val prompt = intent.getStringExtra("prompt") ?: "A serene Japanese garden"
+            val negativePrompt = intent.getStringExtra("negative_prompt") ?: ""
             val modelId = intent.getStringExtra("model_id") ?: viewModel.params.value.modelId
-            val steps = intent.getIntExtra("steps", viewModel.params.value.steps)
-            android.util.Log.i("MainActivity", "handleAutoGenerate received: prompt='$prompt', modelId='$modelId', steps=$steps")
+            val defaultSteps = if (modelId == "sd15_qnn_npu") 20 else viewModel.params.value.steps
+            val steps = intent.getIntExtra("steps", defaultSteps)
+            val defaultCfg = if (modelId == "sd15_qnn_npu") 7.5f else viewModel.params.value.cfgScale
+            val cfgScale = intent.getFloatExtra("cfg_scale", defaultCfg)
+            val preferredBackend = intent.getStringExtra("preferred_backend")
+
+            android.util.Log.i("MainActivity", "handleAutoGenerate received: prompt='$prompt', modelId='$modelId', steps=$steps, cfgScale=$cfgScale")
             lifecycleScope.launch {
                 delay(600)
-                viewModel.updateParams(viewModel.params.value.copy(prompt = prompt, modelId = modelId, steps = steps))
+                viewModel.updateParams(
+                    viewModel.params.value.copy(
+                        prompt = prompt,
+                        negativePrompt = negativePrompt,
+                        modelId = modelId,
+                        steps = steps,
+                        cfgScale = cfgScale,
+                        preferredBackend = preferredBackend
+                    )
+                )
                 viewModel.startGeneration()
             }
         }

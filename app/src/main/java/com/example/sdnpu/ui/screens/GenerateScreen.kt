@@ -315,7 +315,19 @@ fun GenerateScreen(
                             )
                         },
                         onClick = {
-                            onParamsChange(params.copy(modelId = variant.id))
+                            val newSteps = when (variant.id) {
+                                "sd15_qnn_npu" -> if (params.steps <= 4) 20 else params.steps
+                                "sdturbo" -> if (params.steps > 4) 1 else params.steps
+                                "dreamshaper_v8_base" -> if (params.steps < 4) 4 else params.steps
+                                else -> params.steps
+                            }
+                            val newCfg = when (variant.id) {
+                                "sd15_qnn_npu" -> if (params.cfgScale <= 1.0f) 7.5f else params.cfgScale
+                                "sdturbo" -> 1.0f
+                                "dreamshaper_v8_base" -> 1.0f
+                                else -> params.cfgScale
+                            }
+                            onParamsChange(params.copy(modelId = variant.id, steps = newSteps, cfgScale = newCfg))
                             modelExpanded = false
                         }
                     )
