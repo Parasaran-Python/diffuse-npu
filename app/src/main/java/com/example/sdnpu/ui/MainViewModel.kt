@@ -117,9 +117,9 @@ class MainViewModel(
     private val _params = MutableStateFlow(
         GenerationParams(
             prompt = "",
-            modelId = "sdturbo",
-            steps = 1,
-            cfgScale = 1.0f,
+            modelId = "sd15_qnn_npu",
+            steps = 20,
+            cfgScale = 7.5f,
             sampler = SamplerType.EULER_A,
             batchCount = 1,
             upscaleMode = UpscaleMode.OFF
@@ -292,6 +292,16 @@ class MainViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             val models = modelManager.listLocalModels()
             _localModels.value = models
+            val currentInstalled = models.contains(_params.value.modelId)
+            if (!currentInstalled && models.isNotEmpty()) {
+                val targetModel = if (models.contains("sd15_qnn_npu")) "sd15_qnn_npu" else models.first()
+                val isSd15 = targetModel == "sd15_qnn_npu"
+                _params.value = _params.value.copy(
+                    modelId = targetModel,
+                    steps = if (isSd15 && _params.value.steps <= 4) 20 else _params.value.steps,
+                    cfgScale = if (isSd15 && _params.value.cfgScale <= 1.0f) 7.5f else _params.value.cfgScale
+                )
+            }
         }
     }
 

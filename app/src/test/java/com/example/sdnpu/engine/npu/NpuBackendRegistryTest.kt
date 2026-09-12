@@ -54,6 +54,15 @@ class NpuBackendRegistryTest {
             smallFile.writeBytes(ByteArray(1024))
             assertTrue(qnnBackend.canExecute(smallFile, null))
 
+            val largeUncompiled = File(tempDir, "text_encoder.onnx")
+            java.io.RandomAccessFile(largeUncompiled, "rw").use { it.setLength(60_000_000L) }
+            assertFalse(qnnBackend.canExecute(largeUncompiled, null))
+            assertTrue(qnnBackend.canExecute(largeUncompiled, ModelExecutionProfile.SD15_QNN_PRECOMPILED))
+
+            val teBin = File(tempDir, "text_encoder_qairt_context.bin")
+            teBin.writeBytes(ByteArray(100))
+            assertTrue(qnnBackend.canExecute(largeUncompiled, null))
+
             val ctxFile = File(tempDir, "unet.onnx")
             val binFile = File(tempDir, "unet_qairt_context.bin")
             ctxFile.writeBytes(ByteArray(100))
@@ -85,5 +94,19 @@ class NpuBackendRegistryTest {
         } finally {
             tempDir.deleteRecursively()
         }
+    }
+
+    @Test
+    fun testFormatOrtErrorMessageTranslatesBiasGelu() {
+        val flatModelFile = File("/models/sdturbo/text_encoder.onnx")
+        val fakeException = RuntimeException("Failed to find kernel for com.microsoft.BiasGelu(1) (node:'BiasGelu' ep:'CPUExecutionProvider')")
+        val msg1 = NpuBackendRegistry.formatOrtErrorMessage(flatModelFile, fakeException)
+        assertTrue(msg1.contains("Model 'sdturbo'"))
+        assertTrue(msg1.contains("BiasGelu/Gelu"))
+        assertTrue(msg1.contains("SD 1.5 (Snapdragon NPU)"))
+
+        val nestedModelFile = File("/models/sdturbo/text_encoder/model.onnx")
+        val msg2 = NpuBackendRegistry.formatOrtErrorMessage(nestedModelFile, fakeException)
+        assertTrue(msg2.contains("Model 'sdturbo'"))
     }
 }

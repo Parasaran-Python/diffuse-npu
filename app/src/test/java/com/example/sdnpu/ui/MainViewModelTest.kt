@@ -114,9 +114,9 @@ class MainViewModelTest {
     fun testInitialParamsAndSettings() = runBlocking {
         val params = viewModel.params.value
         assertNotNull(params)
-        assertEquals("sdturbo", params.modelId)
-        assertEquals(1, params.steps)
-        assertEquals(1.0f, params.cfgScale, 0.001f)
+        assertEquals("sd15_qnn_npu", params.modelId)
+        assertEquals(20, params.steps)
+        assertEquals(7.5f, params.cfgScale, 0.001f)
 
         val settings = viewModel.appSettings.value
         assertEquals("NPU", settings.backendPreference)
@@ -429,5 +429,35 @@ class MainViewModelTest {
         } finally {
             server.shutdown()
         }
+    }
+
+    @Test
+    fun testRefreshLocalModelsAutoSelectionBehavior() = runBlocking {
+        val modelsDir = File(testDir, "models")
+        val dreamshaperDir = File(modelsDir, "dreamshaper_v8_base").apply { mkdirs() }
+        File(dreamshaperDir, ".complete").createNewFile()
+
+        // When sd15_qnn_npu is missing but another model is installed, auto-select the installed one
+        viewModel.refreshLocalModels()
+        val p1 = viewModel.params.filter { it.modelId == "dreamshaper_v8_base" }.first()
+        assertEquals("dreamshaper_v8_base", p1.modelId)
+
+        // When sd15_qnn_npu becomes available, it is prioritized when switching from missing model
+        viewModel.updateParams(viewModel.params.value.copy(modelId = "non_existent_model"))
+        val sd15Dir = File(modelsDir, "sd15_qnn_npu").apply { mkdirs() }
+        File(sd15Dir, ".complete").createNewFile()
+        viewModel.refreshLocalModels()
+        val p2 = viewModel.params.filter { it.modelId == "sd15_qnn_npu" }.first()
+        assertEquals("sd15_qnn_npu", p2.modelId)
+        assertEquals(20, p2.steps)
+        assertEquals(7.5f, p2.cfgScale, 0.001f)
+
+        // When user deliberately selects another installed model, refresh does NOT overwrite it
+        viewModel.updateParams(viewModel.params.value.copy(modelId = "dreamshaper_v8_base", steps = 8, cfgScale = 2.0f))
+        viewModel.refreshLocalModels()
+        kotlinx.coroutines.delay(100)
+        assertEquals("dreamshaper_v8_base", viewModel.params.value.modelId)
+        assertEquals(8, viewModel.params.value.steps)
+        assertEquals(2.0f, viewModel.params.value.cfgScale, 0.001f)
     }
 }

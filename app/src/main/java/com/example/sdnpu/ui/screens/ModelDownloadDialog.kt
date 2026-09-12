@@ -23,14 +23,14 @@ fun ModelDownloadDialog(
     onCancelDownload: () -> Unit = {},
     onPauseDownload: () -> Unit = {},
     onResumeDownload: () -> Unit = {},
-    initialModelId: String = "sdturbo"
+    initialModelId: String = "sd15_qnn_npu"
 ) {
     val presets = remember { ModelDownloadPresets.getPresets() }
     var selectedPresetId by remember(initialModelId) {
         mutableStateOf(
             presets.find { it.id == initialModelId }?.id
                 ?: presets.firstOrNull()?.id
-                ?: "sdturbo"
+                ?: "sd15_qnn_npu"
         )
     }
 
