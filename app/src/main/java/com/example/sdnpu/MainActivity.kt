@@ -127,7 +127,7 @@ class MainActivity : ComponentActivity() {
                                 backendStatus = backendStatus,
                                 localModels = localModels,
                                 onOpenDownloadDialog = {
-                                    targetDownloadModelId = "sdturbo"
+                                    targetDownloadModelId = "sd15_qnn_npu"
                                     showDownloadDialog = true
                                 },
                                 onUpdateSteps = { viewModel.updateDefaultSteps(it) },

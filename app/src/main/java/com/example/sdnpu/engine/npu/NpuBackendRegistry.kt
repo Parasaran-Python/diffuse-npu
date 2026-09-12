@@ -74,6 +74,7 @@ object NpuBackendRegistry {
             }
         }
 
+        var lastError: Throwable? = null
         for (backend in candidateBackends) {
             if (backend.canExecute(modelFile, profile)) {
                 try {
@@ -82,14 +83,30 @@ object NpuBackendRegistry {
                     Log.i(TAG, "SUCCESS: Session created for ${modelFile.name} on ${backend.name}")
                     return Pair(session, backend)
                 } catch (t: Throwable) {
+                    lastError = t
                     Log.w(TAG, "${backend.name} session creation failed for ${modelFile.name}, falling back", t)
                 }
             }
         }
 
-        // Ultimate CPU fallback
-        val cpuBackend = getBackend(BackendType.CPU)!!
-        val fallbackSession = cpuBackend.createSession(env, modelFile, profile)
-        return Pair(fallbackSession, cpuBackend)
+        // Ultimate CPU fallback ONLY if CPU wasn't already attempted
+        val cpuBackend = getBackend(BackendType.CPU)
+        if (cpuBackend != null && !candidateBackends.contains(cpuBackend) && cpuBackend.canExecute(modelFile, profile)) {
+            try {
+                val fallbackSession = cpuBackend.createSession(env, modelFile, profile)
+                return Pair(fallbackSession, cpuBackend)
+            } catch (t: Throwable) {
+                lastError = t
+            }
+        }
+
+        val errMsg = lastError?.message ?: "No compatible execution backend available"
+        if (errMsg.contains("ORT_NOT_IMPLEMENTED") || errMsg.contains("BiasGelu") || errMsg.contains("Gelu")) {
+            throw IllegalStateException(
+                "Model '${modelFile.parentFile?.name ?: modelFile.name}' contains unsupported FP16 operators in ONNX Runtime Mobile (BiasGelu/Gelu). Please select 'SD 1.5 (Snapdragon NPU)' which is 100% precompiled and verified for Hexagon NPU acceleration.",
+                lastError
+            )
+        }
+        throw lastError ?: IllegalStateException("Failed to create inference session for ${modelFile.name}")
     }
 }

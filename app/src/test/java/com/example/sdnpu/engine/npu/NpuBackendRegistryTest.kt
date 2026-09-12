@@ -54,6 +54,15 @@ class NpuBackendRegistryTest {
             smallFile.writeBytes(ByteArray(1024))
             assertTrue(qnnBackend.canExecute(smallFile, null))
 
+            val largeUncompiled = File(tempDir, "text_encoder.onnx")
+            java.io.RandomAccessFile(largeUncompiled, "rw").use { it.setLength(60_000_000L) }
+            assertFalse(qnnBackend.canExecute(largeUncompiled, null))
+            assertTrue(qnnBackend.canExecute(largeUncompiled, ModelExecutionProfile.SD15_QNN_PRECOMPILED))
+
+            val teBin = File(tempDir, "text_encoder_qairt_context.bin")
+            teBin.writeBytes(ByteArray(100))
+            assertTrue(qnnBackend.canExecute(largeUncompiled, null))
+
             val ctxFile = File(tempDir, "unet.onnx")
             val binFile = File(tempDir, "unet_qairt_context.bin")
             ctxFile.writeBytes(ByteArray(100))

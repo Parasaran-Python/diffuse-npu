@@ -215,7 +215,14 @@ class PipelineManager(
             }
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
-            send(PipelineState.Error(e.message ?: "Generation failed"))
+            val rawMsg = e.message ?: "Generation failed"
+            val displayMsg = if (rawMsg.contains("ORT_NOT_IMPLEMENTED") || rawMsg.contains("BiasGelu") || rawMsg.contains("Gelu")) {
+                "Model '${params.modelId}' contains unsupported FP16 operators in ONNX Runtime Mobile (BiasGelu/Gelu). Please select 'SD 1.5 (Snapdragon NPU)' for verified Hexagon NPU acceleration."
+            } else {
+                rawMsg
+            }
+            android.util.Log.e("PipelineManager", "Generation error: $displayMsg", e)
+            send(PipelineState.Error(displayMsg))
         }
     }.buffer(capacity = 128, onBufferOverflow = BufferOverflow.SUSPEND)
 

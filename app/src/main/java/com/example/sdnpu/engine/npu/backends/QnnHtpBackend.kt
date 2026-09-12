@@ -42,17 +42,25 @@ class QnnHtpBackend(
         val contextOnnxFile = File(modelFile.parentFile, "${modelFile.nameWithoutExtension}_ctx.onnx")
         val hasContextOnnx = contextOnnxFile.exists() && contextOnnxFile.length() > 0
         val isExplicitContextBin = modelFile.extension.equals("bin", ignoreCase = true)
+        val hasQairtBin = File(modelFile.parentFile, "${modelFile.nameWithoutExtension}_qairt_context.bin").let { it.exists() && it.length() > 0 }
+        val hasModelBin = File(modelFile.parentFile, "model.bin").let { it.exists() && it.length() > 0 }
+        val isPrecompiledContext = profile?.isPrecompiledContext == true ||
+                profile?.runtime?.contains("precompiled", ignoreCase = true) == true ||
+                hasContextOnnx || isExplicitContextBin || hasQairtBin || hasModelBin
 
-        // Raw unquantized models >1GB cannot be JIT-compiled on-device without triggering LMKD OOM.
-        // A model is only safe from JIT OOM if it has a precompiled ONNX context, is a standalone context .bin,
-        // or its ONNX file size is small (<100MB, e.g. Qualcomm AI Hub external context wrapper).
+        // Raw unquantized models without precompiled context binaries cannot run on Hexagon NPU
+        // and cannot be JIT-compiled on-device without triggering LMKD OOM or unsupported operator errors (e.g. FP16 BiasGelu).
+        if (!isPrecompiledContext && modelFile.length() > 50_000_000L) {
+            return false
+        }
+
         val isLargeUnet = modelFile.name == "unet.onnx" && modelFile.length() > 1_000_000_000L
-        if (isLargeUnet && !hasContextOnnx && !isExplicitContextBin) {
+        if (isLargeUnet && !isPrecompiledContext) {
             return false
         }
 
         val isLargeFloatVae = (modelFile.name == "vae_decoder.onnx" || modelFile.name == "vae.onnx") && modelFile.length() > 80_000_000L
-        if (isLargeFloatVae && !hasContextOnnx && !isExplicitContextBin) {
+        if (isLargeFloatVae && !isPrecompiledContext) {
             return false
         }
 

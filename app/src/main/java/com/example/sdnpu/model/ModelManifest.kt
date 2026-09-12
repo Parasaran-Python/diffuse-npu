@@ -137,13 +137,13 @@ object ModelVariants {
         ModelVariant(
             id = "sdturbo",
             name = "SD-Turbo (ONNX / LCM)",
-            description = "Fast 1-4 step inference with ONNX Runtime & QNN NPU",
+            description = "Fast 1-4 step experimental model (requires FP32/QNN context)",
             isDefault = false
         ),
         ModelVariant(
             id = "dreamshaper_v8_base",
             name = "DreamShaper v8 (LCM / ONNX)",
-            description = "High quality 4-8 step SD 1.5 LCM inference on Qualcomm NPU"
+            description = "High quality 4-8 step SD 1.5 LCM inference (requires FP32/QNN context)"
         )
     )
 
