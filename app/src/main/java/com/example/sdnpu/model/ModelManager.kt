@@ -159,21 +159,23 @@ class ModelManager(
                 try {
                     // Extract zip safely to prevent Zip Slip vulnerabilities (CWE-022) while preserving directory structure
                     emit(DownloadStatus.DownloadingComponent("Extracting NPU models...", 100L, 100L, 100))
-                    val canonicalModelDir = modelDir.canonicalFile
+                    val destinationDir = modelDir.canonicalFile
+                    val destinationPath = destinationDir.toPath().normalize()
                     java.util.zip.ZipInputStream(zipPartFile.inputStream().buffered()).use { zis ->
                         var entry = zis.nextEntry
                         while (entry != null) {
-                            val entryName = entry.name.replace('\\', '/')
-                            val outFile = File(modelDir, entryName)
-                            val canonicalOutFile = outFile.canonicalFile
-                            if (!canonicalOutFile.path.startsWith(canonicalModelDir.path + File.separator) && canonicalOutFile != canonicalModelDir) {
+                            val outFile = File(destinationDir, entry.name.replace('\\', '/'))
+                            if (!outFile.toPath().normalize().startsWith(destinationPath)) {
                                 throw SecurityException("Zip entry traverses outside destination directory (Zip Slip): ${entry.name}")
                             }
                             if (entry.isDirectory) {
-                                canonicalOutFile.mkdirs()
+                                outFile.mkdirs()
                             } else {
-                                canonicalOutFile.parentFile?.mkdirs()
-                                FileOutputStream(canonicalOutFile).buffered().use { fos ->
+                                if (outFile.toPath().normalize() == destinationPath) {
+                                    throw SecurityException("Zip entry targets destination root directory: ${entry.name}")
+                                }
+                                outFile.parentFile?.mkdirs()
+                                FileOutputStream(outFile).buffered().use { fos ->
                                     zis.copyTo(fos)
                                 }
                             }
