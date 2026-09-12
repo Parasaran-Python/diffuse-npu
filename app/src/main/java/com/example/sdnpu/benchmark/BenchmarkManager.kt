@@ -97,7 +97,7 @@ class BenchmarkManager(
 
             if (errorOccurred != null) {
                 return@withContext BenchmarkReport(
-                    backend = "NPU",
+                    backend = params.preferredBackend ?: "NPU",
                     totalDurationMs = totalMs,
                     stages = emptyList(),
                     avgStepLatencyMs = 0f,
@@ -128,7 +128,7 @@ class BenchmarkManager(
             val avgStep = if (params.steps > 0) unetMs.toFloat() / params.steps else 0f
 
             BenchmarkReport(
-                backend = "NPU",
+                backend = params.preferredBackend ?: "NPU",
                 totalDurationMs = totalMs,
                 stages = stages,
                 avgStepLatencyMs = avgStep,
@@ -138,7 +138,7 @@ class BenchmarkManager(
         } catch (e: Exception) {
             val totalMs = System.currentTimeMillis() - startTotal
             BenchmarkReport(
-                backend = "NPU",
+                backend = params.preferredBackend ?: "NPU",
                 totalDurationMs = totalMs,
                 stages = emptyList(),
                 avgStepLatencyMs = 0f,
@@ -149,7 +149,18 @@ class BenchmarkManager(
         }
     }
 
-    suspend fun compareBackends(params: GenerationParams, simulate: Boolean = true): Map<String, BenchmarkReport> {
+    suspend fun compareBackends(params: GenerationParams, simulate: Boolean = false): Map<String, BenchmarkReport> {
+        if (!simulate && pipelineManager != null) {
+            val npuReport = runBenchmark(params.copy(preferredBackend = "NPU"), false)
+            val gpuReport = runBenchmark(params.copy(preferredBackend = "GPU"), false)
+            val cpuReport = runBenchmark(params.copy(preferredBackend = "CPU"), false)
+            return mapOf(
+                "NPU" to npuReport,
+                "GPU" to gpuReport,
+                "CPU" to cpuReport
+            )
+        }
+
         val npuReport = runBenchmark(params, simulate)
         val gpuStages = npuReport.stages.map {
             it.copy(durationMs = (it.durationMs * 1.8f).toLong())

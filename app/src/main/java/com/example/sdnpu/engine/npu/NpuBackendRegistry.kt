@@ -17,6 +17,7 @@ object NpuBackendRegistry {
     init {
         // Register all pluggable NPU and hardware backends
         registeredBackends.add(QnnHtpBackend { OnnxDiffusionEngine.nativeLibraryDir })
+        registeredBackends.add(QnnGpuBackend { OnnxDiffusionEngine.nativeLibraryDir })
         registeredBackends.add(MediaTekApuBackend())
         registeredBackends.add(GoogleTensorBackend())
         registeredBackends.add(SamsungExynosBackend())
