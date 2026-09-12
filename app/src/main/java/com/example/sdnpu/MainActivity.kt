@@ -178,8 +178,14 @@ class MainActivity : ComponentActivity() {
             val defaultCfg = if (modelId == "sd15_qnn_npu") 7.5f else viewModel.params.value.cfgScale
             val cfgScale = intent.getFloatExtra("cfg_scale", defaultCfg)
             val preferredBackend = intent.getStringExtra("preferred_backend")
+            val seed = if (intent.hasExtra("seed")) intent.getLongExtra("seed", 0L) else viewModel.params.value.seed
+            val batchCount = intent.getIntExtra("batch_count", viewModel.params.value.batchCount)
 
-            android.util.Log.i("MainActivity", "handleAutoGenerate received: prompt='$prompt', modelId='$modelId', steps=$steps, cfgScale=$cfgScale")
+            if (preferredBackend != null) {
+                viewModel.updateBackendPreference(preferredBackend)
+            }
+
+            android.util.Log.i("MainActivity", "handleAutoGenerate received: prompt='$prompt', modelId='$modelId', steps=$steps, cfgScale=$cfgScale, seed=$seed, batchCount=$batchCount")
             lifecycleScope.launch {
                 delay(600)
                 viewModel.updateParams(
@@ -189,7 +195,9 @@ class MainActivity : ComponentActivity() {
                         modelId = modelId,
                         steps = steps,
                         cfgScale = cfgScale,
-                        preferredBackend = preferredBackend
+                        preferredBackend = preferredBackend,
+                        seed = seed,
+                        batchCount = batchCount
                     )
                 )
                 viewModel.startGeneration()
