@@ -65,47 +65,18 @@ object OnnxEsrganEngine {
         return rgba
     }
 
-    fun createSession(env: OrtEnvironment, modelFile: File): OrtSession {
-        val availableProviders = runCatching { OrtEnvironment.getAvailableProviders() }.getOrNull() ?: emptySet()
-
-        // Tier 1: Qualcomm QNN Execution Provider (HTP Backend)
-        if (availableProviders.contains(OrtProvider.QNN)) {
-            try {
-                OrtSession.SessionOptions().use { qnnOptions ->
-                    qnnOptions.setIntraOpNumThreads(4)
-                    qnnOptions.addConfigEntry("session.load_model_format", "ONNX")
-                    val qnnProviderOptions = mapOf(
-                        "backend_type" to "HTP",
-                        "backend_path" to OnnxDiffusionEngine.resolveQnnBackendPath(),
-                        "htp_performance_mode" to "burst",
-                        "htp_graph_finalization_optimization_mode" to "3"
-                    )
-                    qnnOptions.addQnn(qnnProviderOptions)
-                    return env.createSession(modelFile.absolutePath, qnnOptions)
-                }
-            } catch (t: Throwable) {
-                Log.w(TAG, "Tier 1 (QNN) session creation failed for ${modelFile.name}, falling back", t)
-            }
-        }
-
-        // Tier 2: Android NNAPI Execution Provider
-        if (availableProviders.contains(OrtProvider.NNAPI)) {
-            try {
-                OrtSession.SessionOptions().use { nnapiOptions ->
-                    nnapiOptions.setIntraOpNumThreads(4)
-                    nnapiOptions.addNnapi()
-                    return env.createSession(modelFile.absolutePath, nnapiOptions)
-                }
-            } catch (t: Throwable) {
-                Log.w(TAG, "Tier 2 (NNAPI) session creation failed for ${modelFile.name}, falling back", t)
-            }
-        }
-
-        // Tier 3: CPU fallback
-        OrtSession.SessionOptions().use { cpuOptions ->
-            cpuOptions.setIntraOpNumThreads(4)
-            return env.createSession(modelFile.absolutePath, cpuOptions)
-        }
+    fun createSession(
+        env: OrtEnvironment,
+        modelFile: File,
+        preferredBackendType: BackendType? = null
+    ): OrtSession {
+        val (session, _) = com.example.sdnpu.engine.npu.NpuBackendRegistry.createSession(
+            env = env,
+            modelFile = modelFile,
+            profile = null,
+            preferredBackendType = preferredBackendType
+        )
+        return session
     }
 
     fun upscale(

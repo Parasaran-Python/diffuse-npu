@@ -1,36 +1,30 @@
 package com.example.sdnpu.engine
 
-import kotlin.math.round
 import kotlin.math.sqrt
 
 /**
- * Mathematical implementation of EulerDiscreteScheduler configured for SD-Turbo:
+ * Mathematical implementation of Hugging Face Diffusers EulerDiscreteScheduler
+ * configured for Stable Diffusion 1.5:
  * - beta_start: 0.00085
  * - beta_end: 0.012
  * - beta_schedule: scaled_linear
  * - num_train_timesteps: 1000
- * - timestep_spacing: trailing
+ * - steps_offset: 1
  * - prediction_type: epsilon
+ * - timestep_spacing: leading
  */
-interface DiffusionSchedule {
-    val timesteps: FloatArray
-    val sigmas: FloatArray
-    val initNoiseSigma: Float
-    fun scaleModelInput(sample: FloatArray, stepIndex: Int): FloatArray
-    fun step(sample: FloatArray, modelOutput: FloatArray, stepIndex: Int, outPrevSample: FloatArray)
-}
-
-object SdTurboScheduler {
+object EulerDiscreteScheduler {
     const val NUM_TRAIN_TIMESTEPS = 1000
     const val BETA_START = 0.00085
     const val BETA_END = 0.012
+    const val STEPS_OFFSET = 1
 
     data class Schedule(
         override val timesteps: FloatArray,
         override val sigmas: FloatArray
     ) : DiffusionSchedule {
         override val initNoiseSigma: Float
-            get() = sigmas[0]
+            get() = sqrt(sigmas[0] * sigmas[0] + 1.0f)
 
         override fun scaleModelInput(sample: FloatArray, stepIndex: Int): FloatArray {
             val sigma = sigmas[stepIndex]
@@ -72,16 +66,16 @@ object SdTurboScheduler {
     }
 
     /**
-     * Compute discrete timesteps and interpolated sigmas for [numInferenceSteps] with trailing spacing.
+     * Compute discrete timesteps and interpolated sigmas for [numInferenceSteps] with leading spacing and offset.
      */
     fun getSchedule(numInferenceSteps: Int): Schedule {
         val steps = numInferenceSteps.coerceIn(1, NUM_TRAIN_TIMESTEPS)
-        val stepRatio = NUM_TRAIN_TIMESTEPS.toDouble() / steps.toDouble()
+        val stepRatio = NUM_TRAIN_TIMESTEPS / steps
         val timesteps = FloatArray(steps)
         val sigmas = FloatArray(steps + 1)
 
         for (i in 0 until steps) {
-            val tVal = round(NUM_TRAIN_TIMESTEPS.toDouble() - (i.toDouble() * stepRatio)).toFloat() - 1f
+            val tVal = ((steps - 1 - i) * stepRatio + STEPS_OFFSET).toFloat()
             val clampedT = tVal.coerceIn(0f, (NUM_TRAIN_TIMESTEPS - 1).toFloat())
             timesteps[i] = clampedT
 

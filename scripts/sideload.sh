@@ -19,7 +19,7 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 PACKAGE_NAME="com.example.sdnpu"
 ACTIVITY_NAME="${PACKAGE_NAME}/.MainActivity"
 APK_PATH="${PROJECT_ROOT}/app/build/outputs/apk/release/app-release.apk"
-MAX_SIZE_MB=50
+MAX_SIZE_MB=100
 
 # Colors for terminal output
 RED='\033[0;31m'

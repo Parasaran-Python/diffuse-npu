@@ -179,6 +179,9 @@ class MainViewModel(
     val isLowBattery: StateFlow<Boolean> = deviceMonitor.isLowBattery
 
     init {
+        application?.applicationInfo?.nativeLibraryDir?.let { libDir ->
+            com.example.sdnpu.engine.OnnxDiffusionEngine.initAdspLibraryPath(libDir)
+        }
         refreshBackend()
         refreshLocalModels()
         viewModelScope.launch {
@@ -301,8 +304,10 @@ class MainViewModel(
 
         generationJob = viewModelScope.launch {
             val prompt = _params.value.prompt
-            pipelineManager.runGeneration(_params.value).collect { state ->
-                android.util.Log.i("MainViewModel", "pipelineState updated: $state")
+            val backendPref = _params.value.preferredBackend ?: appSettings.value.backendPreference
+            val effectiveParams = _params.value.copy(preferredBackend = backendPref)
+            pipelineManager.runGeneration(effectiveParams).collect { state ->
+                android.util.Log.i("MainViewModel", "pipelineState updated: $state (backend=$backendPref)")
                 _pipelineState.value = state
                 when (state) {
                     is PipelineState.Generating -> {
@@ -356,6 +361,7 @@ class MainViewModel(
                 manifestRes.getOrThrow()
             } else {
                 val resolvedId = modelId ?: when {
+                    url.contains("qcs8550", ignoreCase = true) || url.contains("sd15_qnn_npu", ignoreCase = true) -> "sd15_qnn_npu"
                     url.contains("sd-turbo", ignoreCase = true) || url.contains("sdturbo", ignoreCase = true) -> "sdturbo"
                     url.contains("dreamshaper", ignoreCase = true) -> "dreamshaper_v8_base"
                     url.contains("realesrgan", ignoreCase = true) -> {
@@ -367,9 +373,10 @@ class MainViewModel(
                     }
                     url.contains("anime", ignoreCase = true) -> "dreamshaper_v8_anime"
                     url.contains("realistic", ignoreCase = true) -> "dreamshaper_v8_realistic"
-                    else -> "sdturbo"
+                    else -> "sd15_qnn_npu"
                 }
                 when (resolvedId) {
+                    "sd15_qnn_npu" -> ModelManifest.sd15QnnNpu()
                     "sdturbo" -> ModelManifest.sdturbo()
                     "dreamshaper_v8_base" -> ModelManifest.dreamshaper_v8_base()
                     "dreamshaper_v8_anime" -> ModelManifest.dreamshaper_v8_anime()
@@ -414,7 +421,8 @@ class MainViewModel(
                     if (manifestRes.isSuccess) {
                         manifestRes.getOrThrow()
                     } else {
-                        when (lastDownloadModelId ?: "sdturbo") {
+                        when (lastDownloadModelId ?: "sd15_qnn_npu") {
+                            "sd15_qnn_npu" -> ModelManifest.sd15QnnNpu()
                             "sdturbo" -> ModelManifest.sdturbo()
                             "dreamshaper_v8_base" -> ModelManifest.dreamshaper_v8_base()
                             "dreamshaper_v8_anime" -> ModelManifest.dreamshaper_v8_anime()

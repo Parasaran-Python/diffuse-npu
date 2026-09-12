@@ -14,7 +14,8 @@ data class GenerationParams(
     val seed: Long? = null,
     val sampler: SamplerType = SamplerType.EULER_A,
     val batchCount: Int = 1,
-    val upscaleMode: UpscaleMode = UpscaleMode.OFF
+    val upscaleMode: UpscaleMode = UpscaleMode.OFF,
+    val preferredBackend: String? = null
 ) {
     fun validate(): ValidationResult {
         if (prompt.trim().isEmpty()) {
